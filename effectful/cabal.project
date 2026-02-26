@@ -1,0 +1,18 @@
+packages:
+  effectful-core/*.cabal
+  effectful-plugin/*.cabal
+  effectful-th/*.cabal
+  effectful/*.cabal
+
+-- Ignore dependencies of other effect libraries.
+allow-newer: cleff:*
+           , freer-simple:*
+           , fused-effects:*
+           , polysemy:*
+
+-- ghc-9.14
+allow-newer: *:base
+           , hashable:containers
+           , hashable:ghc-bignum
+           , tagged:template-haskell
+           , th-abstraction:template-haskell
