@@ -1,0 +1,55 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.36.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:               log-effectful-extra
+version:            0.1.0.0
+synopsis:           Missing functions for log-effectful package
+description:        Please see the README on GitHub at <https://github.com/deepflowinc-oss/effectful-extras/tree/master/log-effectful-extra#readme>
+category:           System
+homepage:           https://github.com/deepflowinc-oss/effectful-extras#readme
+bug-reports:        https://github.com/deepflowinc-oss/effectful-extras/issues
+author:             DeepFlow, Inc.
+maintainer:         DeepFlow, Inc.
+copyright:          (c) 2024 DeepFlow, Inc.
+license:            BSD-3-Clause
+license-file:       LICENSE
+build-type:         Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/deepflowinc-oss/effectful-extras
+  subdir: log-effectful-extra
+
+library
+  exposed-modules:
+      Effectful.Log.Extra
+  other-modules:
+      Paths_log_effectful_extra
+  autogen-modules:
+      Paths_log_effectful_extra
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+  build-depends:
+      aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , bytestring
+    , effectful
+    , effectful-core
+    , log-base
+    , log-effectful <1.0.1.0
+    , path-tagged
+    , safe-exceptions
+    , semigroupoids
+    , text
+    , text-builder
+    , time
+    , time-effectful
+  default-language: Haskell2010

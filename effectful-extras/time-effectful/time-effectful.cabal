@@ -1,0 +1,43 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.36.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:               time-effectful
+version:            0.1.0.0
+synopsis:           Short description of your package
+description:        Please see the README on GitHub at <https://github.com/deepflowinc-oss/effectful-extras/tree/master/time-effectful#readme>
+category:           Time, Control, System
+homepage:           https://github.com/deepflowinc-oss/effectful-extras#readme
+bug-reports:        https://github.com/deepflowinc-oss/effectful-extras/issues
+author:             DeepFlow, Inc.
+maintainer:         DeepFlow, Inc.
+copyright:          2024 (c) DeepFlow, Inc.
+license:            BSD-3-Clause
+license-file:       LICENSE
+build-type:         Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/deepflowinc-oss/effectful-extras
+  subdir: time-effectful
+
+library
+  exposed-modules:
+      Effectful.Time
+  other-modules:
+      Paths_time_effectful
+  autogen-modules:
+      Paths_time_effectful
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+  build-depends:
+      base >=4.7 && <5
+    , effectful
+    , time
+  default-language: Haskell2010

@@ -1,0 +1,53 @@
+name:                log-effectful-extra
+version:             0.1.0.0
+github:              "deepflowinc-oss/effectful-extras/log-effectful-extra"
+license:             BSD-3-Clause
+author:              "DeepFlow, Inc."
+maintainer:          "DeepFlow, Inc."
+copyright:           "(c) 2024 DeepFlow, Inc."
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+# Metadata used when publishing your package
+synopsis:            Missing functions for log-effectful package
+category:            System
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/deepflowinc-oss/effectful-extras/tree/master/log-effectful-extra#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+- -Wunused-packages
+
+library:
+  source-dirs: src
+  dependencies:
+  - aeson
+  - aeson-pretty
+  - bytestring
+  - effectful-core
+  - log-base
+  - log-effectful < 1.0.1.0
+  - path-tagged
+  - safe-exceptions
+  - semigroupoids
+  - text
+  - text-builder
+  - time
+  - time-effectful
+  - effectful

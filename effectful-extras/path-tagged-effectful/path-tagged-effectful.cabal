@@ -1,0 +1,49 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.36.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:               path-tagged-effectful
+version:            0.1.0.0
+synopsis:           Binding for path-tagged package to effectful.
+description:        Please see the README on GitHub at <https://github.com/deepflowinc-oss/effectful-extras/tree/master/path-tagged-effectful#readme>
+category:           System, Filesystem, Control
+homepage:           https://github.com/deepflowinc-oss/effectful-extras#readme
+bug-reports:        https://github.com/deepflowinc-oss/effectful-extras/issues
+author:             DeepFlow, Inc.
+maintainer:         DeepFlow, Inc.
+copyright:          2024 (c) DeepFlow, Inc.
+license:            BSD-3-Clause
+license-file:       LICENSE
+build-type:         Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/deepflowinc-oss/effectful-extras
+  subdir: path-tagged-effectful
+
+library
+  exposed-modules:
+      Effectful.FileSystem.Tagged
+      Effectful.Temporary.Tagged
+  other-modules:
+      Paths_path_tagged_effectful
+  autogen-modules:
+      Paths_path_tagged_effectful
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , effectful
+    , path-tagged
+    , safe-exceptions
+    , text
+    , time
+    , unix
+  default-language: Haskell2010

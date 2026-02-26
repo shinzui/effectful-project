@@ -1,0 +1,45 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.36.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:               effectful-lens
+version:            0.1.0.0
+synopsis:           Interop between lens and effectful.
+description:        Please see the README on GitHub at <https://github.com/deepflowinc-oss/effectful-extras/tree/master/effectful-lens#readme>
+category:           Control, Data, Lenses, Generics
+homepage:           https://github.com/deepflowinc-oss/effectful-extras#readme
+bug-reports:        https://github.com/deepflowinc-oss/effectful-extras/issues
+author:             DeepFlow, Inc.
+maintainer:         DeepFlow, Inc.
+copyright:          2024 (c) DeepFlow, Inc.
+license:            BSD-3-Clause
+license-file:       LICENSE
+build-type:         Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/deepflowinc-oss/effectful-extras
+  subdir: effectful-lens
+
+library
+  exposed-modules:
+      Effectful.Reader.Static.Lens
+      Effectful.State.Static.Shared.Lens
+  other-modules:
+      Paths_effectful_lens
+  autogen-modules:
+      Paths_effectful_lens
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages
+  build-depends:
+      base >=4.7 && <5
+    , effectful-core
+    , lens
+    , profunctors
+  default-language: Haskell2010
