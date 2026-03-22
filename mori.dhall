@@ -1,6 +1,6 @@
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/4412469f2960b8faa48c123451bf90c0d3400db3/package.dhall
-        sha256:2e416c2d8c28c0b3b217cab47cc6d9e8bb9bec34b87d476edbb0d6d0863d1401
+      https://raw.githubusercontent.com/shinzui/mori-schema/58523ea11e120f3be1c978e509d67f51311a8280/package.dhall
+        sha256:e4acbb565c9f4e4b3831dabf084e50f8687dda780b7874ced90ae88d6f349f4f
 
 in  { project =
       { name = "effectful"
@@ -35,8 +35,10 @@ in  { project =
         , path = Some "effectful/effectful-core"
         , description = Some
             "Core effect system primitives without IO integration"
+        , lifecycle = None Schema.Lifecycle
         , visibility = Schema.Visibility.Public
         , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
@@ -47,8 +49,10 @@ in  { project =
         , path = Some "effectful/effectful"
         , description = Some
             "Full effect system with IO integration and batteries included"
+        , lifecycle = None Schema.Lifecycle
         , visibility = Schema.Visibility.Public
         , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
@@ -58,8 +62,10 @@ in  { project =
         , language = Schema.Language.Haskell
         , path = Some "effectful/effectful-plugin"
         , description = Some "GHC plugin for disambiguating effect operations"
+        , lifecycle = None Schema.Lifecycle
         , visibility = Schema.Visibility.Public
         , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
@@ -69,8 +75,10 @@ in  { project =
         , language = Schema.Language.Haskell
         , path = Some "effectful/effectful-th"
         , description = Some "Template Haskell utilities for effectful"
+        , lifecycle = None Schema.Lifecycle
         , visibility = Schema.Visibility.Public
         , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
@@ -80,8 +88,10 @@ in  { project =
         , language = Schema.Language.Haskell
         , path = Some "effectful-extras"
         , description = Some "Extra utilities and combinators for effectful"
+        , lifecycle = None Schema.Lifecycle
         , visibility = Schema.Visibility.Public
         , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
@@ -97,6 +107,8 @@ in  { project =
     , dependencies = [] : List Text
     , apis = [] : List Schema.Api
     , agents = [] : List Schema.AgentHint
+    , skills = [] : List Schema.Skill
+    , subagents = [] : List Schema.Subagent
     , standards = [] : List Text
     , docs =
       [ { key = "error-guide"
