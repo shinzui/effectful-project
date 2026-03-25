@@ -83,11 +83,63 @@ in  { project =
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
         }
-      , { name = "effectful-extras"
+      , { name = "s3-effectful"
         , type = Schema.PackageType.Library
         , language = Schema.Language.Haskell
-        , path = Some "effectful-extras"
-        , description = Some "Extra utilities and combinators for effectful"
+        , path = Some "effectful-extras/s3-effectful"
+        , description = Some "S3 operations as effectful effects"
+        , lifecycle = None Schema.Lifecycle
+        , visibility = Schema.Visibility.Public
+        , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
+        , dependencies = [] : List Schema.Dependency
+        , docs = [] : List Schema.DocRef
+        , config = [] : List Schema.ConfigItem
+        }
+      , { name = "time-effectful"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "effectful-extras/time-effectful"
+        , description = Some "Time operations as effectful effects"
+        , lifecycle = None Schema.Lifecycle
+        , visibility = Schema.Visibility.Public
+        , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
+        , dependencies = [] : List Schema.Dependency
+        , docs = [] : List Schema.DocRef
+        , config = [] : List Schema.ConfigItem
+        }
+      , { name = "effectful-lens"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "effectful-extras/effectful-lens"
+        , description = Some "Lens integration for effectful"
+        , lifecycle = None Schema.Lifecycle
+        , visibility = Schema.Visibility.Public
+        , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
+        , dependencies = [] : List Schema.Dependency
+        , docs = [] : List Schema.DocRef
+        , config = [] : List Schema.ConfigItem
+        }
+      , { name = "typed-process-effectful-extra"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "effectful-extras/typed-process-effectful-extra"
+        , description = Some "Extra utilities for typed-process-effectful"
+        , lifecycle = None Schema.Lifecycle
+        , visibility = Schema.Visibility.Public
+        , runtime = { deployable = False, exposesApi = False }
+        , runtimeEnvironment = None Schema.RuntimeEnvironment
+        , dependencies = [] : List Schema.Dependency
+        , docs = [] : List Schema.DocRef
+        , config = [] : List Schema.ConfigItem
+        }
+      , { name = "random-effectful"
+        , type = Schema.PackageType.Library
+        , language = Schema.Language.Haskell
+        , path = Some "effectful-extras/random-effectful"
+        , description = Some "Random number generation as effectful effects"
         , lifecycle = None Schema.Lifecycle
         , visibility = Schema.Visibility.Public
         , runtime = { deployable = False, exposesApi = False }
