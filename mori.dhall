@@ -1,6 +1,6 @@
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/58523ea11e120f3be1c978e509d67f51311a8280/package.dhall
-        sha256:e4acbb565c9f4e4b3831dabf084e50f8687dda780b7874ced90ae88d6f349f4f
+      https://raw.githubusercontent.com/shinzui/mori-schema/8415b4b8a746a84eecf982f0f1d7194368bf7b54/package.dhall
+        sha256:d19ae156d6c357d982a1aea0f1b6ba1f01d76d2d848545b150db75ed4c39a8a9
 
 in  { project =
       { name = "effectful"
@@ -42,6 +42,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "effectful"
         , type = Schema.PackageType.Library
@@ -56,6 +57,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "effectful-plugin"
         , type = Schema.PackageType.Library
@@ -69,6 +71,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "effectful-th"
         , type = Schema.PackageType.Library
@@ -82,6 +85,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "s3-effectful"
         , type = Schema.PackageType.Library
@@ -95,6 +99,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "time-effectful"
         , type = Schema.PackageType.Library
@@ -108,6 +113,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "effectful-lens"
         , type = Schema.PackageType.Library
@@ -121,6 +127,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "typed-process-effectful-extra"
         , type = Schema.PackageType.Library
@@ -134,6 +141,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       , { name = "random-effectful"
         , type = Schema.PackageType.Library
@@ -147,6 +155,7 @@ in  { project =
         , dependencies = [] : List Schema.Dependency
         , docs = [] : List Schema.DocRef
         , config = [] : List Schema.ConfigItem
+        , apiSource = None Schema.ApiSource
         }
       ]
     , bundles =
