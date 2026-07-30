@@ -52,12 +52,16 @@ module Effectful.Internal.Monad
   , seqUnliftIO
   , seqForkUnliftIO
   , concUnliftIO
+  , seqForkUnliftsIO
+  , concUnliftsIO
 
   -- * Dispatch
 
   -- ** Dynamic dispatch
   , EffectHandler
-  , LocalEnv(..)
+  , LocalEnv
+  , unwrapLocalEnv
+  , requireMatchingStorages
   , Handler(..)
   , HandlerImpl(..)
   , relinkHandler
@@ -163,13 +167,13 @@ unsafeEff_ m = unsafeEff $ \_ -> m
 --
 -- /Note:/ this strategy is implicitly used by the 'MonadUnliftIO' and
 -- 'MonadBaseControl' instance for 'Eff'.
-unliftStrategy :: IOE :> es => Eff es UnliftStrategy
+unliftStrategy :: (HasCallStack, IOE :> es) => Eff es UnliftStrategy
 unliftStrategy = do
   IOE unlift <- getStaticRep
   pure unlift
 
 -- | Locally override the current 'UnliftStrategy' with the given value.
-withUnliftStrategy :: IOE :> es => UnliftStrategy -> Eff es a -> Eff es a
+withUnliftStrategy :: (HasCallStack, IOE :> es) => UnliftStrategy -> Eff es a -> Eff es a
 withUnliftStrategy unlift = localStaticRep $ \_ -> IOE unlift
 
 -- | Create an unlifting function with the 'SeqUnlift' strategy. For the general
@@ -215,7 +219,7 @@ seqUnliftIO es k = do
   tid0 <- myThreadId
   k $ \m -> do
     tid <- myThreadId
-    if tid `eqThreadId` tid0
+    if tid == tid0
       then unEff m es
       else error
          $ "If you want to use the unlifting function to run Eff computations "
@@ -242,10 +246,70 @@ concUnliftIO
   -> ((forall r. Eff es r -> IO r) -> IO a)
   -- ^ Continuation with the unlifting function in scope.
   -> IO a
-concUnliftIO es Ephemeral (Limited uses) = ephemeralConcUnlift es uses
-concUnliftIO es Ephemeral Unlimited = ephemeralConcUnlift es maxBound
-concUnliftIO es Persistent (Limited threads) = persistentConcUnlift es False threads
-concUnliftIO es Persistent Unlimited = persistentConcUnlift es True maxBound
+concUnliftIO es Ephemeral (Limited uses) k = ephemeralConcLimitedUnlift es uses k
+concUnliftIO es Ephemeral Unlimited k = ephemeralConcUnlimitedUnlift es k
+concUnliftIO es Persistent (Limited threads) k =
+  if threads == 1
+  then persistentConcSingleUnlift es k
+  else persistentConcUnlift es False threads k
+concUnliftIO es Persistent Unlimited k = persistentConcUnlift es True maxBound k
+
+-- | Create two unlifting functions with the 'SeqForkUnlift' strategy.
+--
+-- The unlifting functions will share the effect storage (unlike with two
+-- separate calls to 'seqForkUnliftIO').
+--
+-- /Warning:/ both environments must have the same underlying storage.
+--
+-- @since 2.7.0.0
+seqForkUnliftsIO
+  :: HasCallStack
+  => Env es
+  -> Env localEs
+  -> ((forall r. Eff es r -> IO r) -> (forall r. Eff localEs r -> IO r) -> IO a)
+  -- ^ Continuation with the unlifting functions in scope.
+  -> IO a
+seqForkUnliftsIO es0 les0 k = do
+  storage <- cloneStorage es0.storage
+  es <- replaceStorage es0 storage
+  les <- replaceStorage les0 storage
+  seqUnliftIO es $ \unliftEs -> do
+    seqUnliftIO les $ \unliftLocalEs -> do
+      k unliftEs unliftLocalEs
+{-# INLINE seqForkUnliftsIO #-}
+
+-- | Create unlifting functions with the 'ConcUnlift' strategy.
+--
+-- In the 'Persistent' variant the unlifting functions will share the effect
+-- storage in each thread (unlike with two separate calls to 'concUnliftIO').
+--
+-- /Warning:/ both environments must have the same underlying storage.
+--
+-- @since 2.7.0.0
+concUnliftsIO
+  :: HasCallStack
+  => Env es
+  -> Env localEs
+  -- ^ The environment.
+  -> Persistence
+  -> Limit
+  -> ((forall r. Eff es r -> IO r) -> (forall r. Eff localEs r -> IO r) -> IO a)
+  -- ^ Continuation with the unlifting functions in scope.
+  -> IO a
+concUnliftsIO es les Ephemeral (Limited uses) k = do
+  ephemeralConcLimitedUnlift es uses $ \unliftEs -> do
+    ephemeralConcLimitedUnlift les uses $ \unliftLocalEs -> do
+      k unliftEs unliftLocalEs
+concUnliftsIO es les Ephemeral Unlimited k = do
+  ephemeralConcUnlimitedUnlift es $ \unliftEs -> do
+    ephemeralConcUnlimitedUnlift les $ \unliftLocalEs -> do
+      k unliftEs unliftLocalEs
+concUnliftsIO es les Persistent (Limited threads) k = do
+  if threads == 1
+    then persistentConcSingleUnlifts es les k
+    else persistentConcUnlifts es les False threads k
+concUnliftsIO es les Persistent Unlimited k = do
+  persistentConcUnlifts es les True maxBound k
 
 -- | Utility for lifting 'IO' computations of type
 --
@@ -344,6 +408,11 @@ instance NonDet :> es => MonadPlus (Eff es)
 ----------------------------------------
 -- Exception
 
+-- | Available without any effect requirements.
+--
+-- Gating it behind an effect (such as 'IOE' or a more specialized effect) would
+-- accomplish nothing, since any Haskell expression is free to throw an
+-- exception with 'E.throw' at any point.
 instance C.MonadThrow (Eff es) where
   throwM = unsafeEff_ . withFrozenCallStack E.throwIO
 
@@ -351,6 +420,17 @@ instance C.MonadThrow (Eff es) where
   rethrowM = unsafeEff_ . E.rethrowIO
 #endif
 
+-- | Available without any effect requirements.
+--
+-- This is the one instance of the three that would arguably benefit from
+-- requiring 'IOE' (or a more specialized effect), as catching imprecise
+-- exceptions makes it possible to write non-deterministic pure functions with
+-- 'runPureEff'. Unfortunately it can't, because t'C.MonadCatch' is a superclass
+-- of t'C.MonadMask', which needs to be available unconditionally (see the note
+-- there).
+--
+-- For the full discussion see
+-- [issue #76](https://github.com/haskell-effectful/effectful/issues/76).
 instance C.MonadCatch (Eff es) where
   catch action handler = reallyUnsafeUnliftIO $ \unlift -> do
     E.catch (unlift action) (unlift . handler)
@@ -360,6 +440,22 @@ instance C.MonadCatch (Eff es) where
     E.catchNoPropagate (unlift action) (unlift . handler)
 #endif
 
+-- | Available without any effect requirements.
+--
+-- This makes it possible to use cleanup functions such as
+-- 'Effectful.Exception.bracket' or 'Effectful.Exception.finally' anywhere, e.g.
+-- to restore a state on error:
+--
+-- @
+-- transactionally :: forall s es a. 'Effectful.State.Static.Local.State' s ':>' es => 'Eff' es a -> 'Eff' es a
+-- transactionally = 'Effectful.Exception.bracketOnError' ('Effectful.State.Static.Local.get' \@s) ('Effectful.State.Static.Local.put' \@s) . const
+-- @
+--
+-- Requiring 'IOE' would make functions like the above impossible to write and
+-- force 'IOE' to show up in application code that otherwise only needs more
+-- restricted effects, which would be a significant usability regression. On the
+-- other hand, requiring a more specialized effect would be annoying, since
+-- functions making use of t'C.MonadMask' are ubiquitous.
 instance C.MonadMask (Eff es) where
   mask k = reallyUnsafeUnliftIO $ \unlift -> do
     E.mask $ \release -> unlift $ k (reallyUnsafeLiftMapIO release)
@@ -560,21 +656,37 @@ inject m = unsafeEff $ \es -> unEff m =<< injectEnv es
 ----------------------------------------
 -- Dynamic dispatch
 
-type role LocalEnv nominal nominal
+type role LocalEnv nominal
 
 -- | Opaque representation of the 'Eff' environment at the point of calling the
 -- 'send' function, i.e. right before the control is passed to the effect
 -- handler.
 --
--- The second type variable represents effects of a handler and is needed for
--- technical reasons to guarantee soundness (see
--- t'Effectful.Dispatch.Dynamic.SharedSuffix' for more information).
-newtype LocalEnv (localEs :: [Effect]) (handlerEs :: [Effect]) = LocalEnv (Env localEs)
+-- /Note:/ functions that consume it perform runtime checks to ensure that it's
+-- used within the scope of the effect handler it belongs to.
+newtype LocalEnv (localEs :: [Effect]) = LocalEnv (Env localEs)
+
+-- | Unwrap the 'LocalEnv' via 'requireMatchingStorages'.
+unwrapLocalEnv :: HasCallStack => Env es -> LocalEnv localEs -> IO (Env localEs)
+unwrapLocalEnv es localEs@(LocalEnv les) = do
+  requireMatchingStorages es localEs
+  pure les
+
+-- | Make sure that the 'LocalEnv' is used in the thread/context of the effect
+-- handler it belongs to.
+requireMatchingStorages :: HasCallStack => Env es -> LocalEnv localEs -> IO ()
+requireMatchingStorages es (LocalEnv les)
+  | es.storage /= les.storage = error
+    $ "Env and LocalEnv point to different Storages.\n"
+    ++ "If you passed LocalEnv to a different thread/context and tried to "
+    ++ "use it there, it's not allowed. You need to use it in the "
+    ++ "thread/context of the effect handler."
+  | otherwise = pure ()
 
 -- | Type signature of the effect handler.
 type EffectHandler (e :: Effect) (es :: [Effect])
   = forall a localEs. (HasCallStack, e :> localEs)
-  => LocalEnv localEs es
+  => LocalEnv localEs
   -- ^ Capture of the local environment for handling local 'Eff' computations
   -- when @e@ is a higher order effect.
   -> e (Eff localEs) a
@@ -616,7 +728,7 @@ send
   -> Eff es a
 send op = unsafeEff $ \es -> do
   Handler handlerEs (HandlerImpl handler) <- getEnv es
-  when (envStorage es /= envStorage handlerEs) $ do
+  when (es.storage /= handlerEs.storage) $ do
     error "es and handlerEs point to different Storages"
   -- Prevent the addition of unnecessary 'handler' stack frame to the call
   -- stack. Note that functions 'interpret', 'reinterpret', 'interpose' and

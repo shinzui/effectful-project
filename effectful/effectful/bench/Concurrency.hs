@@ -9,45 +9,58 @@ import Criterion hiding (env)
 import Test.Tasty.Bench hiding (env)
 #endif
 
+import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Monad
 
 import Effectful
 import Effectful.Concurrent.Async qualified as A
+import Effectful.Concurrent.STM
 import Effectful.Dispatch.Dynamic
 import Utils
 
 concurrencyBenchmark :: Benchmark
 concurrencyBenchmark = bgroup "concurrency"
-  [ bgroup "shallow" $ map shallowBench [1, 10, 100]
-  , bgroup "deep" $ map deepBench [1, 10, 100]
+  [ bgroup "shallow" $
+    [ bench "MultiFork" $ nfAppIO (runShallow . testMultiFork) 1000
+    ] ++ map shallowBenchUnmask [1, 10, 100]
+  , bgroup "deep" $
+    [ bench "MultiFork" $ nfAppIO (runDeep . testMultiFork) 1000
+    ] ++ map deepBenchUnmask [1, 10, 100]
   ]
 
-shallowBench :: Int -> Benchmark
-shallowBench n = bgroup ("unmask " ++ show n ++ "x")
+testMultiFork :: IOE :> es => Int -> Eff es ()
+testMultiFork threads = runConcurrent $ do
+  v <- newTVarIO 0
+  withEffToIO (ConcUnlift Persistent $ Limited threads) $ \unlift -> do
+    replicateM_ threads . liftIO . forkIO . unlift . atomically $ modifyTVar' v (+1)
+  atomically $ do
+    acc <- readTVar v
+    when (acc < threads) retry
+
+----------------------------------------
+
+shallowBenchUnmask :: Int -> Benchmark
+shallowBenchUnmask n = bgroup ("unmask " ++ show n ++ "x")
   [ bench "async (IO)" $ nfAppIO (asyncBenchIO n) op
   , bench "async (Eff)" $ nfAppIO (runShallow . A.runConcurrent . asyncBench n) op
   , bench "Fork (localUnliftIO/withLiftMapIO)" $
     nfAppIO (runShallow . runFork1 . forkBench n) op
-  , bench "Fork (localUnlift/withLiftMap)" $
-    nfAppIO (runShallow . runFork2 . forkBench n) op
   , bench "Fork (localLiftUnliftIO)" $
-    nfAppIO (runShallow . runFork3 . forkBench n) op
+    nfAppIO (runShallow . runFork2 . forkBench n) op
   , bench "Fork (localLiftUnlift)" $
-    nfAppIO (runShallow . runFork4 . forkBench n) op
+    nfAppIO (runShallow . runFork3 . forkBench n) op
   ]
 
-deepBench :: Int -> Benchmark
-deepBench n = bgroup ("unmask " ++ show n ++ "x")
+deepBenchUnmask :: Int -> Benchmark
+deepBenchUnmask n = bgroup ("unmask " ++ show n ++ "x")
   [ bench "async (Eff)" $ nfAppIO (runDeep . A.runConcurrent . asyncBench n) op
   , bench "Fork (localUnliftIO/withLiftMapIO)" $
     nfAppIO (runDeep . runFork1 . forkBench n) op
-  , bench "Fork (localUnlift/withLiftMap)" $
-    nfAppIO (runDeep . runFork2 . forkBench n) op
   , bench "Fork (localLiftUnliftIO)" $
-    nfAppIO (runDeep . runFork3 . forkBench n) op
+    nfAppIO (runDeep . runFork2 . forkBench n) op
   , bench "Fork (localLiftUnlift)" $
-    nfAppIO (runDeep . runFork4 . forkBench n) op
+    nfAppIO (runDeep . runFork3 . forkBench n) op
   ]
 
 op :: Monad m => m Int
@@ -67,23 +80,16 @@ runFork1 = interpret $ \env -> \case
     localUnliftIO env (ConcUnlift Ephemeral $ Limited 1) $ \unlift -> do
       asyncWithUnmask $ \unmask -> unlift $ m $ liftMap unmask
 
--- | Uses 'localUnlift' and 'withLiftMap'.
-runFork2 :: IOE :> es => Eff (Fork : es) a -> Eff es a
-runFork2 = reinterpret A.runConcurrent $ \env -> \case
-  ForkWithUnmask m -> withLiftMap env $ \liftMap -> do
-    localUnlift env (ConcUnlift Ephemeral $ Limited 1) $ \unlift -> do
-      A.asyncWithUnmask $ \unmask -> unlift $ m $ liftMap unmask
-
 -- | Uses 'localLiftUnliftIO'.
-runFork3 :: IOE :> es => Eff (Fork : es) a -> Eff es a
-runFork3 = interpret $ \env -> \case
+runFork2 :: IOE :> es => Eff (Fork : es) a -> Eff es a
+runFork2 = interpret $ \env -> \case
   ForkWithUnmask m -> do
     localLiftUnliftIO env (ConcUnlift Persistent $ Limited 1) $ \lift unlift -> do
       asyncWithUnmask $ \unmask -> unlift $ m $ lift . unmask . unlift
 
 -- | Uses 'localLiftUnlift'.
-runFork4 :: IOE :> es => Eff (Fork : es) a -> Eff es a
-runFork4 = reinterpret A.runConcurrent $ \env -> \case
+runFork3 :: IOE :> es => Eff (Fork : es) a -> Eff es a
+runFork3 = reinterpret A.runConcurrent $ \env -> \case
   ForkWithUnmask m -> do
     localLiftUnlift env (ConcUnlift Persistent $ Limited 1) $ \lift unlift -> do
       A.asyncWithUnmask $ \unmask -> unlift $ m $ lift . unmask . unlift

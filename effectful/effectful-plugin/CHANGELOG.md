@@ -1,3 +1,19 @@
+# effectful-plugin-2.2.0.0 (2026-??-??)
+* Fix a compiler panic when a constraint headed by a type variable or a
+  quantified constraint is considered during candidate filtering.
+* Consider effects from the context as candidates for wanteds with (partially)
+  concrete effect rows instead of silently favouring effects from the row.
+  Genuinely ambiguous cases are now reported as such by GHC, while cases
+  disambiguated by other constraints resolve to the effect that fits. The
+  plugin also no longer commits to the sole candidate when it doesn't satisfy
+  the remaining constraints, which results in better error messages.
+* Make sure that givens are produced only from effect rows headed by the
+  promoted list constructor.
+
+# effectful-plugin-2.1.0.0 (2026-04-02)
+* Drop support for GHC < 9.6.
+* Consider built-in instances when filtering candidates.
+
 # effectful-plugin-2.0.0.1 (2025-08-30)
 * Small optimization of checking suitable effects for unification.
 * Add `timing` flag for tracking execution time of the plugin.

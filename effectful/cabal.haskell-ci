@@ -2,12 +2,11 @@ branches:        master
 
 doctest:         <9.11
 doctest-skip:    effectful-plugin
-doctest-version: ^>=0.24
 
 tests:           True
 benchmarks:      True
 
-jobs-selection:  any
+jobs-selection:  uniform
 
 installed:       -all
 

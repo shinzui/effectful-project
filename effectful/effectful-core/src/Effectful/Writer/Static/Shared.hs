@@ -8,6 +8,8 @@
 -- is inefficient. __This applies, in particular, to the standard list type__,
 -- which makes the 'Writer' effect pretty niche.
 --
+-- __If you just want to accumulate values, use "Effectful.Output.Static.Shared.Array" or "Effectful.Output.Static.Shared.List".__
+--
 -- /Note:/ while the 'Control.Monad.Trans.Writer.Strict.Writer' from the
 -- @transformers@ package includes additional operations
 -- 'Control.Monad.Trans.Writer.Strict.pass' and
@@ -61,10 +63,34 @@ execWriter m = do
 tell :: (HasCallStack, Writer w :> es, Monoid w) => w -> Eff es ()
 tell w1 = unsafeEff $ \es -> do
   Writer v <- getEnv es
-  modifyMVar'_ v $ \w0 -> let w = w0 <> w1 in pure w
+  modifyMVar'_ v $ \w0 -> pure (w0 <> w1)
 
 -- | Execute an action and append its output to the overall output of the
 -- 'Writer'.
+--
+-- /Note:/ the output of 'tell' executed from threads spawned within the nested
+-- action is accounted for only if it completes before 'listen' merges the
+-- output, which happens as soon as the action finishes. In particular, the
+-- output of threads that outlive the scope of 'listen' will be lost:
+--
+-- >>> :{
+--   runEff . execWriter @String $ do
+--     lock <- liftIO newEmptyMVar
+--     done <- liftIO newEmptyMVar
+--     tell "1"
+--     _ <- listen @String $ do
+--       tell "2"
+--       withEffToIO (ConcUnlift Ephemeral $ Limited 1) $ \unlift -> do
+--         _ <- forkIO $ do
+--           takeMVar lock
+--           unlift $ tell "3"
+--           putMVar done ()
+--         pure ()
+--     liftIO $ putMVar lock ()
+--     liftIO $ takeMVar done
+--     tell "4"
+-- :}
+-- "124"
 --
 -- /Note:/ if an exception is received while the action is executed, the partial
 -- output of the action will still be appended to the overall output of the
@@ -97,7 +123,7 @@ listen m = unsafeEff $ \es -> do
     merge es v0 v1 = do
       putEnv es $ Writer v0
       w1 <- readMVar' v1
-      modifyMVar'_ v0 $ \w0 -> let w = w0 <> w1 in pure w
+      modifyMVar'_ v0 $ \w0 -> pure (w0 <> w1)
       pure w1
 
 -- | Execute an action and append its output to the overall output of the
@@ -115,5 +141,6 @@ listens f m = do
   pure (a, f w)
 
 -- $setup
+-- >>> import Control.Concurrent
 -- >>> import Control.Exception (ErrorCall)
 -- >>> import Effectful.Exception

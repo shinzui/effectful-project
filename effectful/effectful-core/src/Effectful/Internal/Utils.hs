@@ -7,7 +7,6 @@ module Effectful.Internal.Utils
 
     -- * Utils for 'ThreadId'
   , weakThreadId
-  , eqThreadId
 
     -- * Utils for 'Any'
   , Any
@@ -27,6 +26,7 @@ module Effectful.Internal.Utils
 
 import Control.Exception
 import Data.Primitive.ByteArray
+import Data.Word
 import GHC.Conc.Sync (ThreadId(..))
 import GHC.Exts (Any, RealWorld)
 import GHC.Stack.Types (CallStack(..))
@@ -36,12 +36,11 @@ import Unsafe.Coerce (unsafeCoerce)
 import GHC.Conc.Sync (fromThreadId)
 #else
 import GHC.Exts (Addr#, ThreadId#, unsafeCoerce#)
-#if __GLASGOW_HASKELL__ >= 904
-import Data.Word
-#else
-import Foreign.C.Types
 #endif
-#endif
+
+-- Pretend to depend on containers to silence -Wunused-packages as containers
+-- dependency is needed for doctests.
+import Data.IntMap.Strict ()
 
 -- | Version of bracket with an INLINE pragma to work around
 -- https://gitlab.haskell.org/ghc/ghc/-/issues/22824.
@@ -56,22 +55,15 @@ inlineBracket before after action = mask $ \unmask -> do
 ----------------------------------------
 
 -- | Get an id of a thread that doesn't prevent its garbage collection.
-weakThreadId :: ThreadId -> Int
+weakThreadId :: ThreadId -> Word64
 #if MIN_VERSION_base(4,19,0)
-weakThreadId = fromIntegral . fromThreadId
+weakThreadId = fromThreadId
 #else
-weakThreadId (ThreadId t#) = fromIntegral $ rts_getThreadId (threadIdToAddr# t#)
+weakThreadId (ThreadId t#) = rts_getThreadId (threadIdToAddr# t#)
 
 foreign import ccall unsafe "rts_getThreadId"
-#if __GLASGOW_HASKELL__ >= 904
   -- https://gitlab.haskell.org/ghc/ghc/-/merge_requests/6163
   rts_getThreadId :: Addr# -> Word64
-#elif __GLASGOW_HASKELL__ >= 900
-  -- https://gitlab.haskell.org/ghc/ghc/-/merge_requests/1254
-  rts_getThreadId :: Addr# -> CLong
-#else
-  rts_getThreadId :: Addr# -> CInt
-#endif
 
 -- Note: FFI imports take Addr# instead of ThreadId# because of
 -- https://gitlab.haskell.org/ghc/ghc/-/issues/8281, which would prevent loading
@@ -83,26 +75,6 @@ foreign import ccall unsafe "rts_getThreadId"
 -- The coercion is fine because GHC represents ThreadId# as a pointer.
 threadIdToAddr# :: ThreadId# -> Addr#
 threadIdToAddr# = unsafeCoerce#
-#endif
-
-----------------------------------------
-
-#if __GLASGOW_HASKELL__ < 900
-
--- | 'Eq' instance for 'ThreadId' is broken in GHC < 9, see
--- https://gitlab.haskell.org/ghc/ghc/-/issues/16761 for more info.
-eqThreadId :: ThreadId -> ThreadId -> Bool
-eqThreadId (ThreadId t1#) (ThreadId t2#) =
-  eq_thread (threadIdToAddr# t1#) (threadIdToAddr# t2#) == 1
-
-foreign import ccall unsafe "effectful_eq_thread"
-  eq_thread :: Addr# -> Addr# -> CLong
-
-#else
-
-eqThreadId :: ThreadId -> ThreadId -> Bool
-eqThreadId = (==)
-
 #endif
 
 ----------------------------------------
@@ -128,6 +100,9 @@ newUnique = Unique <$> newByteArray 0
 
 ----------------------------------------
 
+-- | Remove exactly one layer of freezing, i.e. the one added by 'send' and
+-- friends via 'withFrozenCallStack'. Freezes applied by client code need to
+-- stay intact, so this must not recurse.
 thawCallStack :: CallStack -> CallStack
 thawCallStack = \case
   FreezeCallStack cs -> cs

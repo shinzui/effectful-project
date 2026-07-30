@@ -6,11 +6,11 @@
 #
 #   haskell-ci regenerate
 #
-# For more information, see https://github.com/haskell-CI/haskell-ci
+# For more information, see https://github.com/arybczak/haskell-ci
 #
-# version: 0.19.20260104
+# version: 0.19.20260721
 #
-# REGENDATA ("0.19.20260104",["github","--config=cabal.haskell-ci","cabal.project"])
+# REGENDATA ("0.19.20260721",["github","--config=cabal.haskell-ci","cabal.project"])
 #
 name: Haskell-CI
 on:
@@ -23,6 +23,11 @@ on:
   merge_group:
     branches:
       - master
+  workflow_dispatch:
+    {}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   linux:
     name: Haskell-CI - Linux - ${{ matrix.compiler }}
@@ -30,7 +35,7 @@ jobs:
     timeout-minutes:
       60
     container:
-      image: buildpack-deps:jammy
+      image: buildpack-deps:resolute
     continue-on-error: ${{ matrix.allow-failure }}
     strategy:
       matrix:
@@ -40,14 +45,14 @@ jobs:
             compilerVersion: 9.14.1
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.12.2
+          - compiler: ghc-9.12.4
             compilerKind: ghc
-            compilerVersion: 9.12.2
+            compilerVersion: 9.12.4
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.10.2
+          - compiler: ghc-9.10.3
             compilerKind: ghc
-            compilerVersion: 9.10.2
+            compilerVersion: 9.10.3
             setup-method: ghcup
             allow-failure: false
           - compiler: ghc-9.8.4
@@ -60,32 +65,12 @@ jobs:
             compilerVersion: 9.6.7
             setup-method: ghcup
             allow-failure: false
-          - compiler: ghc-9.4.8
-            compilerKind: ghc
-            compilerVersion: 9.4.8
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-9.2.8
-            compilerKind: ghc
-            compilerVersion: 9.2.8
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-9.0.2
-            compilerKind: ghc
-            compilerVersion: 9.0.2
-            setup-method: ghcup
-            allow-failure: false
-          - compiler: ghc-8.10.7
-            compilerKind: ghc
-            compilerVersion: 8.10.7
-            setup-method: ghcup
-            allow-failure: false
       fail-fast: false
     steps:
       - name: apt-get install
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends gnupg ca-certificates dirmngr curl git software-properties-common libtinfo5
+          apt-get install -y --no-install-recommends gnupg ca-certificates dirmngr curl git software-properties-common
       - name: Install GHCup
         run: |
           mkdir -p "$HOME/.ghcup/bin"
@@ -93,8 +78,8 @@ jobs:
           chmod a+x "$HOME/.ghcup/bin/ghcup"
       - name: Install cabal-install
         run: |
-          "$HOME/.ghcup/bin/ghcup" install cabal 3.16.0.0 || (cat "$HOME"/.ghcup/logs/*.* && false)
-          echo "CABAL=$HOME/.ghcup/bin/cabal-3.16.0.0 -vnormal+nowrap" >> "$GITHUB_ENV"
+          "$HOME/.ghcup/bin/ghcup" install cabal 3.16.1.0 || (cat "$HOME"/.ghcup/logs/*.* && false)
+          echo "CABAL=$HOME/.ghcup/bin/cabal-3.16.1.0 -vnormal+nowrap" >> "$GITHUB_ENV"
       - name: Install GHC (GHCup)
         if: matrix.setup-method == 'ghcup'
         run: |
@@ -147,9 +132,9 @@ jobs:
           repository hackage.haskell.org
             url: http://hackage.haskell.org/
           EOF
+          if [ $((HCNUMVER >= 90800)) -ne 0 ] ; then echo "semaphore: True" >> $CABAL_CONFIG ; fi
           cat >> $CABAL_CONFIG <<EOF
-          program-default-options
-            ghc-options: $GHCJOBS +RTS -M3G -RTS
+          jobs: 4
           EOF
           cat $CABAL_CONFIG
       - name: versions
@@ -161,9 +146,9 @@ jobs:
         run: |
           $CABAL v2-update -v
       - name: cache (tools)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
-          key: ${{ runner.os }}-${{ matrix.compiler }}-tools-e7451788
+          key: ${{ runner.os }}-${{ matrix.compiler }}-tools-a943d659
           path: ~/.haskell-ci-tools
       - name: install cabal-plan
         run: |
@@ -176,23 +161,23 @@ jobs:
           cabal-plan --version
       - name: install doctest
         run: |
-          if [ $((HCNUMVER < 91200)) -ne 0 ] ; then $CABAL --store-dir=$HOME/.haskell-ci-tools/store v2-install $ARG_COMPILER --ignore-project -j2 doctest --constraint='doctest ^>=0.24' ; fi
+          if [ $((HCNUMVER < 91200)) -ne 0 ] ; then $CABAL --store-dir=$HOME/.haskell-ci-tools/store v2-install $ARG_COMPILER --ignore-project doctest --constraint='doctest ^>=0.25.0' ; fi
           if [ $((HCNUMVER < 91200)) -ne 0 ] ; then doctest --version ; fi
       - name: save cache (tools)
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
-          key: ${{ runner.os }}-${{ matrix.compiler }}-tools-e7451788
+          key: ${{ runner.os }}-${{ matrix.compiler }}-tools-a943d659
           path: ~/.haskell-ci-tools
       - name: checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           path: source
       - name: initial cabal.project for sdist
         run: |
           touch cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/effectful-core" >> cabal.project
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "packages: $GITHUB_WORKSPACE/source/effectful-plugin" >> cabal.project ; fi
+          echo "packages: $GITHUB_WORKSPACE/source/effectful-plugin" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/effectful-th" >> cabal.project
           echo "packages: $GITHUB_WORKSPACE/source/effectful" >> cabal.project
           cat cabal.project
@@ -218,44 +203,46 @@ jobs:
           touch cabal.project
           touch cabal.project.local
           echo "packages: ${PKGDIR_effectful_core}" >> cabal.project
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "packages: ${PKGDIR_effectful_plugin}" >> cabal.project ; fi
+          echo "packages: ${PKGDIR_effectful_plugin}" >> cabal.project
           echo "packages: ${PKGDIR_effectful_th}" >> cabal.project
           echo "packages: ${PKGDIR_effectful}" >> cabal.project
           echo "package effectful-core" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package effectful-plugin" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project ; fi
+          echo "package effectful-plugin" >> cabal.project
+          echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           echo "package effectful-th" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
           echo "package effectful" >> cabal.project
           echo "    ghc-options: -Werror=missing-methods -Werror=missing-fields" >> cabal.project
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package effectful-core" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package effectful-plugin" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package effectful-th" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package effectful" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=unused-packages" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90000)) -ne 0 ] ; then echo "package effectful-core" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90000)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "package effectful-plugin" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90000)) -ne 0 ] ; then echo "package effectful-th" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90000)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90000)) -ne 0 ] ; then echo "package effectful" >> cabal.project ; fi
-          if [ $((HCNUMVER >= 90000)) -ne 0 ] ; then echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project ; fi
+          echo "package effectful-core" >> cabal.project
+          echo "    ghc-options: -Werror=unused-packages" >> cabal.project
+          echo "package effectful-plugin" >> cabal.project
+          echo "    ghc-options: -Werror=unused-packages" >> cabal.project
+          echo "package effectful-th" >> cabal.project
+          echo "    ghc-options: -Werror=unused-packages" >> cabal.project
+          echo "package effectful" >> cabal.project
+          echo "    ghc-options: -Werror=unused-packages" >> cabal.project
+          echo "package effectful-core" >> cabal.project
+          echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project
+          echo "package effectful-plugin" >> cabal.project
+          echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project
+          echo "package effectful-th" >> cabal.project
+          echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project
+          echo "package effectful" >> cabal.project
+          echo "    ghc-options: -Werror=incomplete-patterns -Werror=incomplete-uni-patterns" >> cabal.project
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "package effectful-core" >> cabal.project ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "    ghc-options: -j4" >> cabal.project ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "package effectful-plugin" >> cabal.project ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "    ghc-options: -j4" >> cabal.project ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "package effectful-th" >> cabal.project ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "    ghc-options: -j4" >> cabal.project ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "package effectful" >> cabal.project ; fi
+          if [ $((HCNUMVER < 90800)) -ne 0 ] ; then echo "    ghc-options: -j4" >> cabal.project ; fi
           cat >> cabal.project <<EOF
           allow-newer: cleff:*
           allow-newer: freer-simple:*
           allow-newer: fused-effects:*
           allow-newer: polysemy:*
-          allow-newer: async:base
-          allow-newer: hashable:base
-          allow-newer: hashable:containers
-          allow-newer: hashable:ghc-bignum
-          allow-newer: tagged:template-haskell
-          allow-newer: th-abstraction:template-haskell
 
           package effectful-core
             ghc-options: -Werror
@@ -277,15 +264,15 @@ jobs:
           $CABAL v2-build $ARG_COMPILER $ARG_TESTS $ARG_BENCH --dry-run all
           cabal-plan
       - name: restore cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
           path: ~/.cabal/store
           restore-keys: ${{ runner.os }}-${{ matrix.compiler }}-
       - name: install dependencies
         run: |
-          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --dependencies-only -j2 all
-          $CABAL v2-build $ARG_COMPILER $ARG_TESTS $ARG_BENCH --dependencies-only -j2 all
+          $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks --dependencies-only all
+          $CABAL v2-build $ARG_COMPILER $ARG_TESTS $ARG_BENCH --dependencies-only all
       - name: build w/o tests
         run: |
           $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks all
@@ -298,17 +285,17 @@ jobs:
       - name: doctest
         run: |
           if [ $((HCNUMVER < 91200)) -ne 0 ] ; then cd ${PKGDIR_effectful_core} || false ; fi
-          if [ $((HCNUMVER < 91200)) -ne 0 ] ; then doctest  -XHaskell2010 -XBangPatterns -XConstraintKinds -XDataKinds -XDeriveFunctor -XDeriveGeneric -XDerivingStrategies -XFlexibleContexts -XFlexibleInstances -XGADTs -XGeneralizedNewtypeDeriving -XImportQualifiedPost -XLambdaCase -XMultiParamTypeClasses -XNoStarIsType -XPolyKinds -XRankNTypes -XRoleAnnotations -XScopedTypeVariables -XStandaloneDeriving -XTupleSections -XTypeApplications -XTypeFamilies -XTypeOperators -XUndecidableInstances src ; fi
+          if [ $((HCNUMVER < 91200)) -ne 0 ] ; then doctest  -XGHC2021 -XDataKinds -XDeepSubsumption -XDerivingStrategies -XDuplicateRecordFields -XLambdaCase -XNoFieldSelectors -XNoStarIsType -XOverloadedRecordDot -XRoleAnnotations -XTypeFamilies -XUndecidableInstances src ; fi
           if [ $((HCNUMVER < 91200)) -ne 0 ] ; then cd ${PKGDIR_effectful_th} || false ; fi
-          if [ $((HCNUMVER < 91200)) -ne 0 ] ; then doctest  -XHaskell2010 -XBangPatterns -XConstraintKinds -XDataKinds -XDeriveFunctor -XDeriveGeneric -XDerivingStrategies -XFlexibleContexts -XFlexibleInstances -XGADTs -XGeneralizedNewtypeDeriving -XImportQualifiedPost -XLambdaCase -XMultiParamTypeClasses -XNoStarIsType -XPolyKinds -XRankNTypes -XRecordWildCards -XRoleAnnotations -XScopedTypeVariables -XStandaloneDeriving -XTupleSections -XTypeApplications -XTypeFamilies -XTypeOperators -XUndecidableInstances src ; fi
+          if [ $((HCNUMVER < 91200)) -ne 0 ] ; then doctest  -XGHC2021 -XDataKinds -XDeepSubsumption -XDerivingStrategies -XDuplicateRecordFields -XLambdaCase -XNoFieldSelectors -XNoStarIsType -XOverloadedRecordDot -XRoleAnnotations -XTypeFamilies -XUndecidableInstances src ; fi
           if [ $((HCNUMVER < 91200)) -ne 0 ] ; then cd ${PKGDIR_effectful} || false ; fi
-          if [ $((HCNUMVER < 91200)) -ne 0 ] ; then doctest  -XHaskell2010 -XBangPatterns -XConstraintKinds -XDataKinds -XDeriveFunctor -XDeriveGeneric -XDerivingStrategies -XFlexibleContexts -XFlexibleInstances -XGADTs -XGeneralizedNewtypeDeriving -XImportQualifiedPost -XLambdaCase -XMultiParamTypeClasses -XNoStarIsType -XPolyKinds -XRankNTypes -XRecordWildCards -XRoleAnnotations -XScopedTypeVariables -XStandaloneDeriving -XTupleSections -XTypeApplications -XTypeFamilies -XTypeOperators -XUndecidableInstances src ; fi
+          if [ $((HCNUMVER < 91200)) -ne 0 ] ; then doctest  -XGHC2021 -XDataKinds -XDeepSubsumption -XDerivingStrategies -XDuplicateRecordFields -XLambdaCase -XNoFieldSelectors -XNoStarIsType -XOverloadedRecordDot -XRoleAnnotations -XTypeFamilies -XUndecidableInstances src ; fi
       - name: cabal check
         run: |
           cd ${PKGDIR_effectful_core} || false
           ${CABAL} -vnormal check
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then cd ${PKGDIR_effectful_plugin} || false ; fi
-          if [ $((HCNUMVER >= 90400)) -ne 0 ] ; then ${CABAL} -vnormal check ; fi
+          cd ${PKGDIR_effectful_plugin} || false
+          ${CABAL} -vnormal check
           cd ${PKGDIR_effectful_th} || false
           ${CABAL} -vnormal check
           cd ${PKGDIR_effectful} || false
@@ -322,7 +309,7 @@ jobs:
           $CABAL v2-build $ARG_COMPILER --disable-tests --disable-benchmarks all
       - name: save cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           key: ${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
           path: ~/.cabal/store

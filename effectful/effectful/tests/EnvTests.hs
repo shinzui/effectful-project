@@ -11,18 +11,24 @@ import Effectful.Dispatch.Static
 import Effectful.Dispatch.Static.Primitive
 import Effectful.Reader.Static
 import Effectful.Provider
+import Effectful.Provider.List
 import Effectful.State.Static.Local
 import Utils qualified as U
 
 envTests :: TestTree
 envTests = testGroup "Env"
   [ testCase "tailEnv works" test_tailEnv
+  , testCase "unconsEnv of a derived environment errors out" test_unconsDerivedEnv
   , testCase "subsume works" test_subsumeEnv
   , testCase "inject works" test_injectEnv
   , testCase "unsafeCoerce doesn't work" test_noUnsafeCoerce
   , testCase "interpose works" test_interpose
   , testCase "interpose/provider works" test_interposeProvider
-  , testCase "borrow/lend works" test_borrowLend
+  , testCase "provider interposition works" test_providerInterposition
+  , testCase "provider list interposition works" test_providerListInterposition
+  , testCase "localSeqLend/localSeqBorrow works" test_lendBorrowSeparate
+  , testCase "localLendBorrow works" test_lendBorrowCombined
+  , testCase "lend/borrow combined shares storage" test_lendBorrowForkShares
   ]
 
 test_tailEnv :: Assertion
@@ -36,6 +42,14 @@ test_tailEnv = runEff . evalState s0 $ do
   where
     s0 :: Int
     s0 = 1337
+
+-- | 'unconsEnv' is only meant to form a bracket with 'consEnv', so it must
+-- reject environments with a non-zero offset instead of deleting an effect
+-- different than the requested one.
+test_unconsDerivedEnv :: Assertion
+test_unconsDerivedEnv = runEff . evalState @Int 0 . evalState @Bool False $ do
+  U.assertThrowsErrorCall "unconsEnv of a derived environment" $ do
+    unsafeEff $ \es -> unconsEnv =<< tailEnv es
 
 test_subsumeEnv :: Assertion
 test_subsumeEnv = runEff $ do
@@ -165,6 +179,42 @@ test_interposeProvider = runEff $ do
         U.assertEqual "b6" 4 b6
         U.assertEqual "b7" 8 b7
 
+test_providerInterposition :: IO ()
+test_providerInterposition = runEff $ do
+  runProvider_ @B @Int (\n -> interpret_ $ \case B -> pure n) $ do
+    b1 <- provideWith_ @B @Int 2 $ send B
+    U.assertEqual "b1 original" 2 b1
+    doubleProviderInput $ do
+      b2 <- provideWith_ @B @Int 2 $ send B
+      U.assertEqual "b2 interposed" 4 b2
+    b3 <- provideWith_ @B @Int 2 $ send B
+    U.assertEqual "b3 original" 2 b3
+
+-- | Modify the input of a provider and delegate to the original one.
+doubleProviderInput :: Provider_ B Int :> es => Eff es a -> Eff es a
+doubleProviderInput = interpose @(Provider_ B Int) $ \env -> \case
+  ProvideWith n action -> passthrough env $ ProvideWith (n * 2) action
+
+test_providerListInterposition :: IO ()
+test_providerListInterposition = runEff $ do
+  runProviderList_ @[B, A] (\(n :: Int) -> runA n . runB) $ do
+    b1 <- provideListWith_ @[B, A] @Int 2 $ send B
+    U.assertEqual "b1 original" 2 b1
+    doubleInput $ do
+      b2 <- provideListWith_ @[B, A] @Int 2 $ send B
+      U.assertEqual "b2 interposed" 4 b2
+    b3 <- provideListWith_ @[B, A] @Int 2 $ send B
+    U.assertEqual "b3 original" 2 b3
+  where
+    -- Delegates manually instead of using passthrough to exercise
+    -- localSeqLend with effects introduced by an upstream handler.
+    doubleInput :: ProviderList_ [B, A] Int :> es => Eff es a -> Eff es a
+    doubleInput = interpose @(ProviderList_ [B, A] Int) $ \env -> \case
+      ProvideListWith n action -> provideListWith @[B, A] (n * 2) $ do
+        localSeqUnlift env $ \unlift -> do
+          localSeqLend @[B, A] env $ \lend -> do
+            unlift (lend action)
+
 data A :: Effect where
   A :: A m Int
 type instance DispatchOf A = Dynamic
@@ -191,32 +241,80 @@ doubleB = interpose_ $ \case
 
 ----------------------------------------
 
-test_borrowLend :: Assertion
-test_borrowLend = runEff $ do
-  runX 1 2 . evalState @[Int] [3] . runReader () . runReader @[Int] [4] $ do
+test_lendBorrowSeparate :: Assertion
+test_lendBorrowSeparate = runEff $ do
+  runX1 1 2 . evalState @[Int] [3] . runReader () . runReader @[Int] [4] $ do
+    U.assertEqual "expected result" [1,2,3,4,1,2,3,4] =<< send X
+
+test_lendBorrowCombined :: Assertion
+test_lendBorrowCombined = runEff $ do
+  runX2 1 2 . evalState @[Int] [3] . runReader () . runReader @[Int] [4] $ do
     U.assertEqual "expected result" [1,2,3,4,1,2,3,4] =<< send X
 
 data X :: Effect where
   X :: (State [Int] :> es, Reader [Int] :> es, Reader () :> es) => X (Eff es) [Int]
 type instance DispatchOf X = Dynamic
 
-runX :: Int -> Int -> Eff (X : es) a -> Eff es a
-runX s0 r0 = reinterpret (evalState s0 . evalState () . runReader r0) $ \env -> \case
+runX1 :: Int -> Int -> Eff (X : es) a -> Eff es a
+runX1 s0 r0 = reinterpret (evalState s0 . evalState () . runReader r0) $ \env -> \case
   X -> localSeqUnlift env $ \unlift -> do
-    as <- localSeqLend @[State Int, Reader Int] env $ \withHandlerEffs -> do
-      unlift . withHandlerEffs $ do
-        () <- ask
-        s <- get @Int
-        r <- ask @Int
-        ss <- get @[Int]
-        rs <- ask @[Int]
-        pure $ [s, r] ++ ss ++ rs
-    bs <- localSeqBorrow @[Reader [Int], State [Int], Reader ()] env $ \withEffs -> do
-      withEffs $ do
-        () <- ask
-        s <- get @Int
-        r <- ask @Int
-        ss <- get @[Int]
-        rs <- ask @[Int]
-        pure $ [s, r] ++ ss ++ rs
-    pure $ as ++ bs
+    localSeqLend @[State Int, Reader Int] env $ \lend -> do
+      localSeqBorrow @[Reader [Int], State [Int], Reader ()] env $ \borrow -> do
+        as <- unlift . lend $ do
+          () <- ask
+          s <- get @Int
+          r <- ask @Int
+          ss <- get @[Int]
+          rs <- ask @[Int]
+          pure $ [s, r] ++ ss ++ rs
+        bs <- borrow $ do
+          () <- ask
+          s <- get @Int
+          r <- ask @Int
+          ss <- get @[Int]
+          rs <- ask @[Int]
+          pure $ [s, r] ++ ss ++ rs
+        pure $ as ++ bs
+
+runX2 :: Int -> Int -> Eff (X : es) a -> Eff es a
+runX2 s0 r0 = reinterpret (evalState s0 . evalState () . runReader r0) $ \env -> \case
+  X -> localSeqUnlift env $ \unlift -> do
+    localLendBorrow
+      @[State Int, Reader Int]
+      @[Reader [Int], State [Int], Reader ()]
+      env SeqUnlift $ \lend borrow -> do
+        as <- unlift . lend $ do
+          () <- ask
+          s <- get @Int
+          r <- ask @Int
+          ss <- get @[Int]
+          rs <- ask @[Int]
+          pure $ [s, r] ++ ss ++ rs
+        bs <- borrow $ do
+          () <- ask
+          s <- get @Int
+          r <- ask @Int
+          ss <- get @[Int]
+          rs <- ask @[Int]
+          pure $ [s, r] ++ ss ++ rs
+        pure $ as ++ bs
+
+-- | Under 'SeqForkUnlift' state modification done via the borrowing function
+-- must also be visible via the lending function (they share the forked
+-- storage), but invisible to the handler.
+test_lendBorrowForkShares :: Assertion
+test_lendBorrowForkShares = runEff . evalState @Int 0 . runY $ do
+  U.assertEqual "lend sees borrow's write" 1 =<< send Y
+  U.assertEqual "handler is isolated" 0 =<< get @Int
+
+data Y :: Effect where
+  Y :: State Int :> es => Y (Eff es) Int
+type instance DispatchOf Y = Dynamic
+
+runY :: State Int :> es => Eff (Y : es) a -> Eff es a
+runY = interpret $ \env Y ->
+  localLendBorrow @'[State Int] @'[State Int] env SeqForkUnlift $ \lend borrow -> do
+    -- Write via borrow (runs against the forked clone)...
+    borrow $ put @Int 1
+    -- ...and read it back via lend (against the same forked clone).
+    localSeqUnlift env $ \unlift -> unlift . lend $ get @Int

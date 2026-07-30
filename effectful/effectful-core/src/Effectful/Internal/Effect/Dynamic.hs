@@ -3,7 +3,7 @@
 --
 -- This module is intended for internal use only, and may change without warning
 -- in subsequent releases.
-module Effectful.Internal.MTL where
+module Effectful.Internal.Effect.Dynamic where
 
 import Control.Monad.Except qualified as MTL
 import Control.Monad.Reader qualified as MTL
@@ -19,6 +19,8 @@ import Effectful.Internal.Monad
 data Error e :: Effect where
   -- | @since 2.4.0.0
   ThrowErrorWith :: (e -> String) -> e -> Error e m a
+  -- | @since 2.7.0.0
+  RethrowErrorWith :: (e -> String) -> CallStack -> e -> Error e m a
   CatchError :: m a -> (CallStack -> e -> m a) -> Error e m a
 
 type instance DispatchOf (Error e) = Dynamic
@@ -58,6 +60,8 @@ data State s :: Effect where
   State  :: (s ->   (a, s)) -> State s m a
   StateM :: (s -> m (a, s)) -> State s m a
 
+{-# DEPRECATED StateM "Use a combination of Get and Put instead." #-}
+
 type instance DispatchOf (State s) = Dynamic
 
 -- | Instance included for compatibility with existing code.
@@ -79,6 +83,11 @@ data Writer w :: Effect where
 type instance DispatchOf (Writer w) = Dynamic
 
 -- | Instance included for compatibility with existing code.
+--
+-- /Warning:/ 'MTL.pass' is not implemented due to ambiguous semantics in
+-- presence of runtime exceptions, so calling it (also indirectly via
+-- 'MTL.censor', which is defined in terms of 'MTL.pass') results in a runtime
+-- error.
 instance
   ( Monoid w
   , Writer w :> es

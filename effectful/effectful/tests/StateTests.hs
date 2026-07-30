@@ -1,3 +1,5 @@
+-- The deprecated stateM needs to be tested until it's removed.
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module StateTests (stateTests) where
 
 import Control.Exception.Lifted qualified as LE
@@ -51,7 +53,7 @@ test_stateM = runEff $ do
   U.assertEqual "correct a" "hi"    a
   U.assertEqual "correct b" "hi!!!" b
   where
-    getEffectReps = unsafeEff $ \es -> sdEffects . stData <$> readIORef' (envStorage es)
+    getEffectReps = unsafeEff $ \es -> (.effects) . (.data_) <$> readIORef' es.storage
 
 test_deepStack :: Assertion
 test_deepStack = runEff $ do

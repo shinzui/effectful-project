@@ -1,5 +1,6 @@
 module UnliftTests (unliftTests) where
 
+import Data.List (isInfixOf)
 import Test.Tasty
 import Test.Tasty.HUnit
 import UnliftIO.Async qualified as A
@@ -7,6 +8,7 @@ import UnliftIO.Async qualified as A
 import Effectful
 import Effectful.Concurrent.Async qualified as E
 import Effectful.Dispatch.Dynamic
+import Effectful.Exception
 import Effectful.State.Static.Local
 import Utils qualified as U
 
@@ -25,6 +27,8 @@ unliftTests = testGroup "Unlift"
     , testCase "Uses in multiple threads" test_persistentMultipleThreads
     ]
   , testCase "Unlifting functions work correctly" test_unliftingFunctions
+  , testCase "Escaped setup of reinterpret" test_escapedReinterpretSetup
+  , testCase "Escaped setup of impose" test_escapedImposeSetup
   ]
 
 test_threadStrategy :: Assertion
@@ -84,7 +88,6 @@ test_unliftingFunctions = runEff . E.runConcurrent $ do
   testFork "runFork2" runFork2
   testFork "runFork3" runFork3
   testFork "runFork4" runFork4
-  testFork "runFork5" runFork5
   where
     testFork description runFork = do
       a <- runFork . send $ ForkWithUnmask $ \unmask -> do
@@ -97,6 +100,29 @@ test_unliftingFunctions = runEff . E.runConcurrent $ do
       E.waitCatch a >>= \case
         Right () -> pure ()
         Left err -> U.assertFailure $ description ++ ": " ++ show err
+
+test_escapedReinterpretSetup :: Assertion
+test_escapedReinterpretSetup = runEff $ do
+  io <- reinterpret_ smuggle (\case E -> pure ()) $ send E
+  U.assertThrows "EscapedSetup error" escapedSetupError $ liftIO io
+
+test_escapedImposeSetup :: Assertion
+test_escapedImposeSetup = runEff . interpret_ (\case E -> pure ()) $ do
+  io <- impose_ smuggle (\case E -> pure ()) $ send E
+  U.assertThrows "EscapedSetup error" escapedSetupError $ liftIO io
+  -- The escaped computation didn't corrupt the environment.
+  send E
+
+-- | Smuggle the computation out of the scope of the setup function.
+smuggle :: IOE :> es => Eff es a -> Eff es (IO a)
+smuggle m = withEffToIO SeqForkUnlift $ \unlift -> pure (unlift m)
+
+escapedSetupError :: ErrorCall -> Bool
+escapedSetupError e = "cloned environment" `isInfixOf` show e
+
+data E :: Effect where
+  E :: E m ()
+type instance DispatchOf E = Dynamic
 
 data Fork :: Effect where
   ForkWithUnmask :: ((forall a. m a -> m a) -> m r) -> Fork m (A.Async r)
@@ -112,19 +138,9 @@ runFork1 = interpret $ \env -> \case
   where
     strategy = ConcUnlift Ephemeral $ Limited 1
 
--- | Uses 'localUnlift' and 'withLiftMap'.
-runFork2 :: (IOE :> es, E.Concurrent :> es) => Eff (Fork : es) a -> Eff es a
-runFork2 = interpret $ \env -> \case
-  ForkWithUnmask m -> do
-    withLiftMap env $ \liftMap -> do
-      localUnlift env strategy $ \unlift -> do
-        E.asyncWithUnmask $ \unmask -> unlift $ m $ liftMap unmask
-  where
-    strategy = ConcUnlift Ephemeral $ Limited 1
-
 -- | Uses 'localLiftUnliftIO'.
-runFork3 :: IOE :> es => Eff (Fork : es) a -> Eff es a
-runFork3 = interpret $ \env -> \case
+runFork2 :: IOE :> es => Eff (Fork : es) a -> Eff es a
+runFork2 = interpret $ \env -> \case
   ForkWithUnmask m -> do
     localLiftUnliftIO env strategy $ \lift unlift -> do
       A.asyncWithUnmask $ \unmask -> unlift $ m $ lift . unmask . unlift
@@ -132,8 +148,8 @@ runFork3 = interpret $ \env -> \case
     strategy = ConcUnlift Persistent $ Limited 1
 
 -- | Uses 'localLiftUnlift'.
-runFork4 :: (IOE :> es, E.Concurrent :> es) => Eff (Fork : es) a -> Eff es a
-runFork4 = interpret $ \env -> \case
+runFork3 :: (IOE :> es, E.Concurrent :> es) => Eff (Fork : es) a -> Eff es a
+runFork3 = interpret $ \env -> \case
   ForkWithUnmask m -> do
     localLiftUnlift env strategy $ \lift unlift -> do
       E.asyncWithUnmask $ \unmask -> unlift $ m $ lift . unmask . unlift
@@ -141,8 +157,8 @@ runFork4 = interpret $ \env -> \case
     strategy = ConcUnlift Persistent $ Limited 1
 
 -- | Uses 'localLift' and 'localUnlift'.
-runFork5 :: (IOE :> es, E.Concurrent :> es) => Eff (Fork : es) a -> Eff es a
-runFork5 = interpret $ \env -> \case
+runFork4 :: (IOE :> es, E.Concurrent :> es) => Eff (Fork : es) a -> Eff es a
+runFork4 = interpret $ \env -> \case
   ForkWithUnmask m -> do
     localLift env strategy $ \lift -> do
       localUnlift env strategy $ \unlift -> do

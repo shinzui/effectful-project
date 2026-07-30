@@ -8,8 +8,8 @@ import Data.Foldable
 import Data.IORef
 import Data.Maybe
 import Data.Set qualified as S
+import GHC.Builtin.Types
 import GHC.Core.Class
-import GHC.Core.InstEnv
 import GHC.Core.Predicate
 import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.Subst
@@ -18,6 +18,7 @@ import GHC.Core.Type
 import GHC.Core.Unify
 import GHC.Driver.Env
 import GHC.Driver.Plugins
+import GHC.Tc.Instance.Class
 import GHC.Tc.Plugin
 import GHC.Tc.Types
 import GHC.Tc.Types.Constraint
@@ -31,23 +32,22 @@ import GHC.Unit.Finder
 import GHC.Unit.Module
 import GHC.Utils.Outputable qualified as O
 
+#if __GLASGOW_HASKELL__ >= 908
+import GHC.Driver.DynFlags (DynFlags)
+#else
+import GHC.Driver.Session (DynFlags)
+#endif
+
 #if __GLASGOW_HASKELL__ <= 912
-import GHC.Driver.Config.Finder
+import GHC.Driver.Config.Finder (initFinderOpts)
 #endif
 
 #if __GLASGOW_HASKELL__ >= 912
-import GHC.Tc.Types.CtLoc
+import GHC.Tc.Types.CtLoc (CtLoc)
 #endif
 
 #ifdef TIMING
 import GHC.Clock
-#endif
-
-#if __GLASGOW_HASKELL__ <= 904
-type Subst = TCvSubst
-
-isEmptySubst :: Subst -> Bool
-isEmptySubst = isEmptyTCvSubst
 #endif
 
 data EffGiven = EffGiven
@@ -103,7 +103,12 @@ plugin = defaultPlugin
     { tcPluginInit = initPlugin
     , tcPluginRewrite = \_ -> emptyUFM
     , tcPluginSolve = disambiguateEffects
-    , tcPluginStop = pluginStopHook
+#if __GLASGOW_HASKELL__ >= 1001
+    , tcPluginPostTc = \_ -> pure ()
+    , tcPluginShutdown = pluginShutdownHook
+#else
+    , tcPluginStop = tcPluginIO . pluginShutdownHook
+#endif
     }
   , pluginRecompile = purePlugin
   }
@@ -113,7 +118,10 @@ initPlugin = do
   clsMod <- lookupModule $ mkModuleName "Effectful.Internal.Effect"
   elemClass <- tcLookupClass =<< lookupOrig clsMod (mkTcOcc ":>")
   totalTime <- tcPluginIO $ newIORef 0
-  pure PluginData{..}
+  pure PluginData
+    { elemClass = elemClass
+    , totalTime = totalTime
+    }
   where
     lookupModule :: ModuleName -> TcPluginM Module
     lookupModule modName = do
@@ -135,19 +143,16 @@ disambiguateEffects pd _ allGivens allWanteds = timed pd $ do
   printList "Wanteds" allWanteds
   printList "EffWanteds" effWanteds
   printList "OtherWanteds" otherWanteds
-  instEnvs <- getInstEnvs
+  dflags <- hsc_dflags <$> getTopEnv
   solutions <- tcPluginIO $ newIORef []
   forM_ effWanteds $ \wanted -> do
     printSingle "Wanted" wanted
     case findCandidates wanted effGivens of
       Left given -> printSingle "Already solved by" given
       Right [] -> printLn "No candidates"
-      Right [(given, _)] -> do
-        printSingle "Single candidate found" given
-        emitEqConstraint solutions wanted given
       Right candidates -> do
-        printList "Multiple candidates found" $ map fst candidates
-        filterCandidates instEnvs None candidates >>= \case
+        printList "Candidates found" $ map fst candidates
+        filterCandidates dflags None candidates >>= \case
           None -> printLn "No candidates left"
           Single given -> do
             printSingle "Single candidate left" given
@@ -170,11 +175,11 @@ disambiguateEffects pd _ allGivens allWanteds = timed pd $ do
       $ allWanteds
 
     filterCandidates
-      :: InstEnvs
+      :: DynFlags
       -> Candidates
       -> [(EffGiven, Subst)]
       -> TcPluginM Candidates
-    filterCandidates instEnvs acc = \case
+    filterCandidates dflags acc = \case
       [] -> pure acc
       (given, subst) : rest -> do
         printSingle "Candidate" given
@@ -187,12 +192,12 @@ disambiguateEffects pd _ allGivens allWanteds = timed pd $ do
           True -> do
             printLn "Candidate fits"
             case acc of
-              None -> filterCandidates instEnvs (Single given) rest
+              None -> filterCandidates dflags (Single given) rest
               Single _ -> pure Multiple
               Multiple -> error "unreachable"
           False -> do
             printLn "Candidate doesn't fit, skipping"
-            filterCandidates instEnvs acc rest
+            filterCandidates dflags acc rest
       where
         allWantedsSolvable :: [Type] -> TcPluginM Bool
         allWantedsSolvable = \case
@@ -203,21 +208,44 @@ disambiguateEffects pd _ allGivens allWanteds = timed pd $ do
               then do
                 printLn "Solvable from local context"
                 allWantedsSolvable rest
-              else case tcSplitTyConApp wanted of
-                (con, args) -> case tyConClass_maybe con of
+              -- The predicate might not be a type constructor application,
+              -- e.g. when it's headed by a type variable or it's a quantified
+              -- constraint, so the total variant of the split needs to be used
+              -- to avoid compiler panics.
+              --
+              -- The two veto branches below are deliberately conservative,
+              -- because these cases are hard to hit in real-world code and
+              -- treating them properly is a lot of work, so the juice is not
+              -- worth the squeeze.
+              else case tcSplitTyConApp_maybe wanted of
+                Nothing -> do
+                  printLn "Not a type constructor application"
+                  pure False
+                Just (con, args) -> case tyConClass_maybe con of
                   Nothing -> do
                     printLn "Not a class constraint"
                     pure False
-                  Just cls -> case lookupInstEnv False instEnvs cls args of
-                    ([], _, _) -> do
-                      printLn "No matching instances found"
-                      pure False
-                    _ -> do
-                      printLn "Found matching instances"
+                  Just cls -> findMatchingInstances dflags cls args >>= \case
+                    OneInst { cir_what = inst } -> do
+                      printSingle "Single matching instance" inst
                       allWantedsSolvable rest
+                    NoInstance -> do
+                      printLn "No matching instances"
+                      pure False
+                    NotSure -> do
+                      printLn "Multiple matching instances"
+                      pure False
 
 ----------------------------------------
 -- Standalone helpers
+
+findMatchingInstances :: DynFlags -> Class -> [Type] -> TcPluginM ClsInstResult
+findMatchingInstances dflags cls args =
+#if __GLASGOW_HASKELL__ <= 912
+  unsafeTcPluginTcM $ matchGlobalInst dflags False cls args
+#else
+  unsafeTcPluginTcM $ matchGlobalInst dflags False cls args Nothing
+#endif
 
 findPluginModuleCompat :: HscEnv -> ModuleName -> TcPluginM FindResult
 findPluginModuleCompat hsc_env mod_name = do
@@ -318,12 +346,13 @@ extendEffGivens wanteds givens = loop givens . nubType $ map (.es) wanteds
       [] -> acc
       fullEs : rest ->
         let extractGivens :: Type -> [EffGiven]
-            extractGivens es = case splitAppTys es of
-              (_colon, [_kind, eff, esTail]) -> EffGiven
-                { effCon = fst $ splitAppTys eff
-                , eff = eff
-                , es = fullEs
-                } : extractGivens esTail
+            extractGivens es = case tcSplitTyConApp_maybe es of
+              Just (con, [_kind, eff, esTail])
+                | con == promotedConsDataCon -> EffGiven
+                  { effCon = fst $ splitAppTys eff
+                  , eff = eff
+                  , es = fullEs
+                  } : extractGivens esTail
               _ -> []
         in loop (extractGivens fullEs ++ acc) rest
 
@@ -361,6 +390,15 @@ substHasAnyTyVar subst = uniqSetAny (`elemUFM` getTvSubstEnv subst)
 -- | Find givens unifiable with a wanted and give them back along with
 -- appropriate substitutions.
 --
+-- A given @e :> es@ is a candidate for a wanted @e' :> ws@ not only when its
+-- effect row is equal to @ws@, but also when it's a suffix of @ws@, since then
+-- it solves the wanted via the @e :> es => e :> (x : es)@ instance just as
+-- well. This way effects from the context compete with effects from a
+-- (partially) concrete row instead of the latter silently winning.
+--
+-- Candidates with equal effect types represent the same solution (the emitted
+-- equality constraint would be identical), so only the first one is kept.
+--
 -- Returns Left if the wanted is already solved by one of the givens.
 findCandidates :: EffWanted -> [EffGiven] -> Either EffGiven [(EffGiven, Subst)]
 findCandidates wanted = loop []
@@ -368,13 +406,23 @@ findCandidates wanted = loop []
     loop acc = \case
       [] -> Right acc
       given : rest ->
-        if wanted.effCon `eqType` given.effCon && wanted.es `eqType` given.es
+        if wanted.effCon `eqType` given.effCon && given.es `isRowSuffixOf` wanted.es
         then case tcUnifyTyNoSkolems wanted.eff given.eff of
           Just subst
             | isEmptySubst subst -> Left given
+            | any (eqType given.eff . (.eff) . fst) acc -> loop acc rest
             | otherwise -> loop ((given, subst) : acc) rest
           Nothing -> loop acc rest
         else loop acc rest
+
+    -- Check whether the first effect row is a syntactic suffix of the second.
+    isRowSuffixOf :: Type -> Type -> Bool
+    isRowSuffixOf gs ws
+      | gs `eqType` ws = True
+      | otherwise = case tcSplitTyConApp_maybe ws of
+          Just (con, [_kind, _eff, wsTail])
+            | con == promotedConsDataCon -> gs `isRowSuffixOf` wsTail
+          _ -> False
 
 nubType :: [Type] -> [Type]
 nubType = coerce . S.toList . S.fromList @OrdType . coerce
@@ -401,8 +449,8 @@ timed pd action = do
     modifyIORef' pd.totalTime (+ (t2 - t1))
   pure a
 
-pluginStopHook :: PluginData -> TcPluginM ()
-pluginStopHook pd = tcPluginIO $ do
+pluginShutdownHook :: PluginData -> IO ()
+pluginShutdownHook pd = do
   time <- readIORef pd.totalTime
   putStrLn $ "Execution time of effectful-plugin (seconds): " ++ show time
 
@@ -411,8 +459,8 @@ pluginStopHook pd = tcPluginIO $ do
 timed :: PluginData -> TcPluginM a -> TcPluginM a
 timed _ action = action
 
-pluginStopHook :: PluginData -> TcPluginM ()
-pluginStopHook _ = pure ()
+pluginShutdownHook :: PluginData -> IO ()
+pluginShutdownHook _ = pure ()
 
 #endif
 

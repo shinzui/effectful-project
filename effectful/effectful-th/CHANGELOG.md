@@ -1,3 +1,13 @@
+# effectful-th-1.0.0.4 (????-??-??)
+* Drop support for GHC < 9.6.
+* Don't generate signatures with an out-of-scope name when a constructor
+  mentions the monad variable in its context (e.g. `Op :: Monad m => Int -> E m
+  ()`) or in arguments of the effect type (e.g. `Op :: Int -> E (m Int) m ()`).
+* Correctly transfer fixity annotations of constructors to the generated
+  functions.
+* Restore the friendly error for effects with mis-kinded type parameters,
+  accidentally disabled in 1.0.0.2.
+
 # effectful-th-1.0.0.3 (2024-10-08)
 * Make `makeEffect` reuse Haddock descriptions of effect operations for
   corresponding functions it generates (GHC >= 9.2).

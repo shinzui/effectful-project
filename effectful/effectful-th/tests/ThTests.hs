@@ -1,10 +1,11 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE FieldSelectors #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Main where
 
 import Data.Kind (Type)
 import GHC.TypeLits
+import Language.Haskell.TH (recover)
 
 import Effectful
 import Effectful.TH
@@ -137,11 +138,44 @@ data ByField :: Effect where
 
 makeEffect 'byFieldAf
 
+-- Test that fixity is transferred to the generated function. With the default
+-- infixl 9 the expression below parses as (1 `fixityOp` 2) `fixityOp` pure 3
+-- and fails to typecheck.
+data Fixity :: Effect where
+  FixityOp :: Int -> m a -> Fixity m a
+
+infixr 5 `FixityOp`
+
+makeEffect ''Fixity
+
+fixityTest :: Fixity :> es => Eff es Int
+fixityTest = 1 `fixityOp` 2 `fixityOp` pure 3
+
+-- Test that effects with mis-kinded type parameters are rejected with a
+-- friendly error. If the kind check doesn't fire, 'makeEffect' succeeds, so
+-- 'badKindRejected' is not generated and its usage below doesn't compile.
+data BadKind (m :: Type) (a :: Type)
+
+$(recover [d| badKindRejected :: (); badKindRejected = () |] $ makeEffect ''BadKind)
+
+useBadKindRejected :: ()
+useBadKindRejected = badKindRejected
+
+-- Test that the monad variable is substituted in constructor contexts.
+data MonadInCtx :: Effect where
+  MonadInCtxA :: Monad m => Int -> MonadInCtx m ()
+  MonadInCtxB :: (Monad m, Show a) => a -> MonadInCtx m a
+
+makeEffect ''MonadInCtx
+
+-- Test that the monad variable is substituted in the effect type.
+data MonadInHead a :: Effect where
+  MonadInHeadC :: Int -> MonadInHead (m Int) m ()
+
+makeEffect ''MonadInHead
+
 type family F ty
 data AmbEff :: Effect where
   AmbEff :: Int -> AmbEff m (F ty)
 
--- This only works in GHC >= 9, otherwise the 'ty' variable is ambiguous.
-#if __GLASGOW_HASKELL__ >= 900
 makeEffect 'AmbEff
-#endif

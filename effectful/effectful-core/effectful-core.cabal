@@ -1,4 +1,4 @@
-cabal-version:      3.0
+cabal-version:      3.8
 build-type:         Simple
 name:               effectful-core
 version:            2.7.0.0
@@ -12,7 +12,7 @@ synopsis:           An easy to use, performant extensible effects library.
 description:
   An easy to use, performant extensible effects library with seamless
   integration with the existing Haskell ecosystem.
-  .
+
   This library provides core definitions with a minimal dependency
   footprint. See the @<https://hackage.haskell.org/package/effectful effectful>@
   package for the "batteries-included" variant.
@@ -21,7 +21,7 @@ extra-source-files:
   CHANGELOG.md
   README.md
 
-tested-with: GHC == { 8.10.7, 9.0.2, 9.2.8, 9.4.8, 9.6.7, 9.8.4, 9.10.2, 9.12.2, 9.14.1 }
+tested-with: GHC == { 9.6.7, 9.8.4, 9.10.3, 9.12.4, 9.14.1 }
 
 bug-reports:   https://github.com/haskell-effectful/effectful/issues
 source-repository head
@@ -31,35 +31,21 @@ source-repository head
 common language
     ghc-options:        -Wall
                         -Wcompat
-                        -Wno-unticked-promoted-constructors
-                        -Wmissing-deriving-strategies
+                        -Werror=missing-deriving-strategies
                         -Werror=prepositive-qualified-module
 
-    default-language:   Haskell2010
+    default-language:   GHC2021
 
-    default-extensions: BangPatterns
-                        ConstraintKinds
-                        DataKinds
-                        DeriveFunctor
-                        DeriveGeneric
+    default-extensions: DataKinds
+                        DeepSubsumption
                         DerivingStrategies
-                        FlexibleContexts
-                        FlexibleInstances
-                        GADTs
-                        GeneralizedNewtypeDeriving
-                        ImportQualifiedPost
+                        DuplicateRecordFields
                         LambdaCase
-                        MultiParamTypeClasses
+                        NoFieldSelectors
                         NoStarIsType
-                        PolyKinds
-                        RankNTypes
+                        OverloadedRecordDot
                         RoleAnnotations
-                        ScopedTypeVariables
-                        StandaloneDeriving
-                        TupleSections
-                        TypeApplications
                         TypeFamilies
-                        TypeOperators
                         UndecidableInstances
 
 library
@@ -67,21 +53,18 @@ library
 
     ghc-options:    -O2
 
-    build-depends:    base                >= 4.14      && < 5
+    build-depends:    base                >= 4.18      && < 5
                     , containers          >= 0.6
                     , deepseq             >= 1.2
                     , exceptions          >= 0.10.4
                     , mtl                 >= 2.2.1
                     , monad-control       >= 1.0.3
-                    , primitive           >= 0.7.3.0
+                    , primitive           >= 0.9.0.0
                     , strict-mutable-base >= 1.1.0.0
                     , transformers-base   >= 0.4.6
                     , unliftio-core       >= 0.2.0.1
 
     hs-source-dirs:  src
-
-    if impl(ghc < 9)
-      c-sources:     cbits/utils.c
 
     exposed-modules: Effectful
                      Effectful.Dispatch.Dynamic
@@ -92,18 +75,32 @@ library
                      Effectful.Error.Static
                      Effectful.Exception
                      Effectful.Fail
+                     Effectful.Input.Dynamic
+                     Effectful.Input.Static
+                     Effectful.Input.Static.Action
                      Effectful.Internal.Effect
+                     Effectful.Internal.Effect.Dynamic
                      Effectful.Internal.Env
-                     Effectful.Internal.MTL
                      Effectful.Internal.Monad
                      Effectful.Internal.Unlift
                      Effectful.Internal.Utils
+                     Effectful.Internal.Utils.Word64Map
                      Effectful.Labeled
                      Effectful.Labeled.Error
+                     Effectful.Labeled.Input
+                     Effectful.Labeled.Output
+                     Effectful.Labeled.Provider
+                     Effectful.Labeled.Provider.List
                      Effectful.Labeled.Reader
                      Effectful.Labeled.State
                      Effectful.Labeled.Writer
                      Effectful.NonDet
+                     Effectful.Output.Dynamic
+                     Effectful.Output.Static.Action
+                     Effectful.Output.Static.Local.Array
+                     Effectful.Output.Static.Local.List
+                     Effectful.Output.Static.Shared.Array
+                     Effectful.Output.Static.Shared.List
                      Effectful.Prim
                      Effectful.Provider
                      Effectful.Provider.List

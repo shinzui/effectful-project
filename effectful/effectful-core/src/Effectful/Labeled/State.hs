@@ -1,4 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+-- The deprecated stateM needs to use the deprecated StateM operation until
+-- they're removed.
+{-# OPTIONS_GHC -Wno-deprecations #-}
 -- | Convenience functions for the 'Labeled' 'State' effect.
 --
 -- @since 2.4.0.0
@@ -26,6 +29,9 @@ module Effectful.Labeled.State
   , modify
   , stateM
   , modifyM
+
+    -- * Re-exports
+  , Labeled(..)
   ) where
 
 import Effectful
@@ -175,3 +181,6 @@ modifyM
   -- ^ .
   -> Eff es ()
 modifyM f = stateM @label (\s -> ((), ) <$> f s)
+
+{-# DEPRECATED stateM, modifyM
+  "Use a combination of get and put instead." #-}

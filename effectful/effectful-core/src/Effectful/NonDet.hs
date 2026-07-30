@@ -22,14 +22,12 @@ module Effectful.NonDet
   ) where
 
 import Control.Applicative
-import Data.IORef.Strict
 import GHC.Generics
 import GHC.Stack
 
 import Effectful
 import Effectful.Dispatch.Dynamic
 import Effectful.Dispatch.Static
-import Effectful.Dispatch.Static.Primitive
 import Effectful.Error.Static
 import Effectful.Internal.Env qualified as I
 import Effectful.Internal.Monad (NonDet(..))
@@ -46,6 +44,16 @@ data OnEmptyPolicy
   -- ^ Keep modifications on 'Empty'.
   | OnEmptyRollback
   -- ^ Rollback modifications on 'Empty'.
+  --
+  -- The rollback applies to the thread local state of __all__ effects, in
+  -- particular ones handled outside of 'runNonDet':
+  --
+  -- >>> import Effectful.State.Static.Local
+  -- >>> :{
+  --   runPureEff . runState @Int 0 . runNonDet OnEmptyRollback $
+  --     (modify @Int (+1) >> emptyEff) <|> get @Int
+  -- :}
+  -- (Right 0,0)
   --
   -- /Note:/ state modifications are rolled back on 'Empty' only. In particular,
   -- they are __not__ rolled back on exceptions.
@@ -85,7 +93,7 @@ runNonDetRollback
 runNonDetRollback = reinterpret setup $ \env -> \case
   Empty       -> throwError ErrorEmpty
   m1 :<|>: m2 -> do
-    backupData <- unsafeEff backupStorageData
+    backupData <- unsafeEff I.backupStorageData
     localSeqUnlift env $ \unlift -> do
       mr <- (Just <$> unlift m1) `catchError` \_ ErrorEmpty -> do
         -- If m1 failed, restore the data.
@@ -96,7 +104,7 @@ runNonDetRollback = reinterpret setup $ \env -> \case
         Nothing -> unlift m2
   where
     setup action = do
-      backupData <- unsafeEff backupStorageData
+      backupData <- unsafeEff I.backupStorageData
       runError @ErrorEmpty action >>= \case
         Right r -> pure $ Right r
         Left (cs, _) -> do
@@ -139,6 +147,3 @@ instance Show ErrorEmpty where
 
 noError :: Either (cs, e) a -> Either cs a
 noError = either (Left . fst) Right
-
-backupStorageData :: HasCallStack => Env es -> IO I.StorageData
-backupStorageData env = I.copyStorageData . I.stData =<< readIORef' (I.envStorage env)

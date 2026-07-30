@@ -12,7 +12,9 @@ module Effectful.Internal.Env
 
     -- ** StorageData
   , StorageData(..)
-  , copyStorageData
+  , cloneStorage
+  , replaceStorage
+  , backupStorageData
   , restoreStorageData
 
     -- *** Utils
@@ -60,6 +62,7 @@ import Data.IORef.Strict
 import Data.Primitive.PrimArray
 import Data.Primitive.SmallArray
 import Data.Primitive.Types
+import Data.Proxy
 import GHC.Exts ((*#), (+#))
 import GHC.Stack
 
@@ -92,17 +95,17 @@ type role Env nominal
 -- - Cloning: /@O(N)@/, where @N@ is the size of the 'Storage'.
 --
 data Env (es :: [Effect]) = Env
-  { envOffset  :: !Int
-  , envRefs    :: !(PrimArray Ref)
-  , envStorage :: !(IORef' Storage)
+  { offset  :: !Int
+  , refs    :: !(PrimArray Ref)
+  , storage :: !(IORef' Storage)
   }
 
 -- | Reference to the effect in 'Storage'.
 data Ref = Ref !Int !Version
 
 instance Prim Ref where
-  sizeOf# _ = 2# *# sizeOf# (undefined :: Int)
-  alignment# _ = alignment# (undefined :: Int)
+  sizeOfType# _ = 2# *# sizeOfType# (Proxy @Int)
+  alignmentOfType# _ = alignmentOfType# (Proxy @Int)
   indexByteArray# arr i =
     let n = 2# *# i
         ref = indexByteArray# arr n
@@ -118,7 +121,6 @@ instance Prim Ref where
         s1 = writeByteArray# arr n ref s0
         s2 = writeByteArray# arr (n +# 1#) version s1
     in s2
-  setByteArray# = defaultSetByteArray#
   indexOffAddr# addr i =
     let n = 2# *# i
         ref = indexOffAddr# addr n
@@ -134,7 +136,6 @@ instance Prim Ref where
         s1 = writeOffAddr# addr n ref s0
         s2 = writeOffAddr# addr (n +# 1#) version s1
     in s2
-  setOffAddr# = defaultSetOffAddr#
 
 -- | Version of the effect.
 newtype Version = Version Int
@@ -142,8 +143,8 @@ newtype Version = Version Int
 
 -- | A storage of effects.
 data Storage = Storage
-  { stVersion :: !Version
-  , stData    :: {-# UNPACK #-} !StorageData
+  { version :: !Version
+  , data_   :: {-# UNPACK #-} !StorageData
   }
 
 ----------------------------------------
@@ -170,11 +171,28 @@ fromAnyRelinker (AnyRelinker f) = fromAny f
 ----------------------------------------
 
 data StorageData = StorageData
-  { sdSize      :: !Int
-  , sdVersions  :: !(MutablePrimArray RealWorld Version)
-  , sdEffects   :: !(SmallMutableArray RealWorld AnyEffect)
-  , sdRelinkers :: !(SmallMutableArray RealWorld AnyRelinker)
+  { size      :: !Int
+  , versions  :: !(MutablePrimArray RealWorld Version)
+  , effects   :: !(SmallMutableArray RealWorld AnyEffect)
+  , relinkers :: !(SmallMutableArray RealWorld AnyRelinker)
   }
+
+-- | Clone the storage to use it in a different thread.
+--
+-- @since 2.7.0.0
+cloneStorage :: HasCallStack => IORef' Storage -> IO (IORef' Storage)
+cloneStorage storage0 = do
+  Storage version storageData0 <- readIORef' storage0
+  storageData <- copyStorageData storageData0
+  storage <- newIORef' $ Storage version storageData
+  relinkStorageData storageData storage
+  pure storage
+
+-- | Replace the storage of the environment.
+--
+-- @since 2.7.0.0
+replaceStorage :: Env es -> IORef' Storage -> IO (Env es)
+replaceStorage (Env offset refs _) storage = pure $ Env offset refs storage
 
 -- | Make a shallow copy of the 'StorageData'.
 --
@@ -193,19 +211,81 @@ copyStorageData (StorageData storageSize vs0 es0 fs0) = do
   fs <- cloneSmallMutableArray fs0 0 fsSize
   pure $ StorageData storageSize vs es fs
 
--- | Restore a shallow copy of the 'StorageData'.
+-- | Relink effects in the storage data to the given storage.
 --
--- The copy needs to be from the same 'Env' as the target.
+-- @since 2.7.0.0
+relinkStorageData :: HasCallStack => StorageData -> IORef' Storage -> IO ()
+relinkStorageData (StorageData storageSize _ es fs) storage = go storageSize
+  where
+    go = \case
+      0 -> pure ()
+      k -> do
+        let i = k - 1
+        Relinker relinker <- fromAnyRelinker <$> readSmallArray fs i
+        readSmallArray es i
+          >>= relinker (relinkEnv storage) . fromAnyEffect
+          >>= writeSmallArray' es i . toAnyEffect
+        go i
+
+-- | Backup storage data of the environment.
+--
+-- It can be restored later with 'restoreStorageData'.
+--
+-- @since 2.7.0.0
+backupStorageData :: HasCallStack => Env es -> IO StorageData
+backupStorageData env = do
+  storageData <- copyStorageData . (.data_) =<< readIORef' env.storage
+  -- Relinking to the same storage might seem weird, but relinkers need to run
+  -- and make a copy of mutable data associated with statically dispatched
+  -- effects if appropriate.
+  relinkStorageData storageData env.storage
+  pure storageData
+
+-- | Restore a copy of the 'StorageData'.
+--
+-- The copy needs to be from the same 'Env' as the target. It's consumed by this
+-- operation and must not be used afterwards.
 --
 -- @since 2.5.0.0
 restoreStorageData :: HasCallStack => StorageData -> Env es -> IO ()
-restoreStorageData newStorageData env = do
-  modifyIORef' (envStorage env) $ \(Storage version oldStorageData) ->
-    let oldSize = sdSize oldStorageData
-        newSize = sdSize newStorageData
-    in if newSize /= oldSize
-    then error $ "newSize (" ++ show newSize ++ ") /= oldSize (" ++ show oldSize ++ ")"
-    else Storage version newStorageData
+restoreStorageData (StorageData newSize vs1 es1 fs1) env = do
+  Storage version (StorageData oldSize vs0 es0 fs0) <- readIORef' env.storage
+  when (newSize /= oldSize) $ do
+    error $ "newSize (" ++ show newSize ++ ") /= oldSize (" ++ show oldSize ++ ")"
+  -- Since the time the backup was made the storage might've been grown by
+  -- 'insertEffect', so if necessary create new arrays matching the current
+  -- capacity, as shrinking it would violate the invariant that out of date
+  -- references in 'getLocation' never read out of bounds.
+  vs0size <- getSizeofMutablePrimArray vs0
+  vs1size <- getSizeofMutablePrimArray vs1
+  vs <- if vs0size > vs1size
+    then do
+      vs <- newPrimArray vs0size
+      copyMutablePrimArray vs 0 vs1 0 newSize
+      -- Fill the unused part of the versions array with
+      -- 'undefinedVersion' to maintain the invariant that slots beyond
+      -- the size of the storage never contain garbage (see the note on
+      -- 'undefinedVersion').
+      setPrimArray vs newSize (vs0size - newSize) undefinedVersion
+      pure vs
+    else pure vs1
+  es0size <- getSizeofSmallMutableArray es0
+  es1size <- getSizeofSmallMutableArray es1
+  es <- if es0size > es1size
+    then do
+      es <- newSmallArray es0size undefinedEffect
+      copySmallMutableArray es 0 es1 0 newSize
+      pure es
+    else pure es1
+  fs0size <- getSizeofSmallMutableArray fs0
+  fs1size <- getSizeofSmallMutableArray fs1
+  fs <- if fs0size > fs1size
+    then do
+      fs <- newSmallArray fs0size undefinedRelinker
+      copySmallMutableArray fs 0 fs1 0 newSize
+      pure fs
+    else pure fs1
+  writeIORef' env.storage $ Storage version (StorageData newSize vs es fs)
 
 ----------------------------------------
 -- Relinker
@@ -252,22 +332,7 @@ emptyEnv = Env 0
 
 -- | Clone the environment to use it in a different thread.
 cloneEnv :: HasCallStack => Env es -> IO (Env es)
-cloneEnv (Env offset refs storage0) = do
-  Storage version storageData0 <- readIORef' storage0
-  storageData@(StorageData storageSize _ es fs) <- copyStorageData storageData0
-  storage <- newIORef' $ Storage version storageData
-  let relinkEffects = \case
-        0 -> pure ()
-        k -> do
-          let i = k - 1
-          Relinker relinker <- fromAnyRelinker <$> readSmallArray fs i
-          readSmallArray es i
-            >>= relinker (relinkEnv storage) . fromAnyEffect
-            >>= writeSmallArray' es i . toAnyEffect
-          relinkEffects i
-  relinkEffects storageSize
-  pure $ Env offset refs storage
-{-# NOINLINE cloneEnv #-}
+cloneEnv env = replaceStorage env =<< cloneStorage env.storage
 
 -- | Get the current size of the environment.
 sizeEnv :: Env es -> IO Int
@@ -298,16 +363,19 @@ consEnv e f (Env offset refs0 storage) = do
   writePrimArray mrefs 0 ref
   refs <- unsafeFreezePrimArray mrefs
   pure $ Env 0 refs storage
-{-# NOINLINE consEnv #-}
 
 -- | Shrink the environment by one data type.
+--
+-- The environment needs to come from 'consEnv', i.e. the intended usage is
+-- @bracket (consEnv e f env) unconsEnv@.
 --
 -- /Note:/ after calling this function @e@ from the input environment is no
 -- longer usable.
 unconsEnv :: HasCallStack => Env (e : es) -> IO ()
-unconsEnv (Env _ refs storage) = do
+unconsEnv (Env offset refs storage) = do
+  when (offset /= 0) $ do
+    error $ "offset (" ++ show offset ++ ") /= 0"
   deleteEffect storage (indexPrimArray refs 0)
-{-# NOINLINE unconsEnv #-}
 
 ----------------------------------------
 
@@ -330,16 +398,19 @@ replaceEnv e f (Env offset refs0 storage) = do
   writePrimArray mrefs (reifyIndex @e @es) ref
   refs <- unsafeFreezePrimArray mrefs
   pure $ Env 0 refs storage
-{-# NOINLINE replaceEnv #-}
 
 -- | Remove a reference to the replaced effect.
+--
+-- The environment needs to come from 'replaceEnv', i.e. the intended usage is
+-- @bracket (replaceEnv e f env) unreplaceEnv@.
 --
 -- /Note:/ after calling this function the input environment is no longer
 -- usable.
 unreplaceEnv :: forall e es. (HasCallStack, e :> es) => Env es -> IO ()
 unreplaceEnv (Env offset refs storage) = do
-  deleteEffect storage $ indexPrimArray refs (offset + reifyIndex @e @es)
-{-# NOINLINE unreplaceEnv #-}
+  when (offset /= 0) $ do
+    error $ "offset (" ++ show offset ++ ") /= 0"
+  deleteEffect storage $ indexPrimArray refs (reifyIndex @e @es)
 
 ----------------------------------------
 
@@ -352,7 +423,6 @@ subsumeEnv (Env offset refs0 storage) = do
   writePrimArray mrefs 0 $ indexPrimArray refs0 (offset + reifyIndex @e @es)
   refs <- unsafeFreezePrimArray mrefs
   pure $ Env 0 refs storage
-{-# NOINLINE subsumeEnv #-}
 
 ----------------------------------------
 
@@ -481,6 +551,10 @@ insertEffect storage e f = do
       vs <- newPrimArray len
       es <- newSmallArray len undefinedEffect
       fs <- newSmallArray len undefinedRelinker
+      -- Fill the unused part of the versions array with 'undefinedVersion' to
+      -- maintain the invariant that slots beyond the size of the storage never
+      -- contain garbage (see the note on 'undefinedVersion').
+      setPrimArray vs size (len - size) undefinedVersion
       copyMutablePrimArray  vs 0 vs0 0 size
       copySmallMutableArray es 0 es0 0 size
       copySmallMutableArray fs 0 fs0 0 size
@@ -490,6 +564,7 @@ insertEffect storage e f = do
       writeIORef' storage $
         Storage (bumpVersion version) (StorageData (size + 1) vs es fs)
       pure $ Ref size version
+{-# NOINLINE insertEffect #-}
 
 -- | Given a reference to an effect from the top of the stack, delete it from
 -- the storage.
@@ -506,11 +581,18 @@ deleteEffect storage (Ref ref version) = do
   writeSmallArray es ref undefinedEffect
   writeSmallArray fs ref undefinedRelinker
   writeIORef' storage $ Storage currentVersion (StorageData (size - 1) vs es fs)
+{-# NOINLINE deleteEffect #-}
 
 -- | Relink the environment to use the new storage.
 relinkEnv :: IORef' Storage -> Env es -> IO (Env es)
 relinkEnv storage (Env offset refs _) = pure $ Env offset refs storage
 
+-- | Version of an unused slot.
+--
+-- /Note:/ slots of the versions array beyond the current size of the storage
+-- always contain 'undefinedVersion', so that out of date references to them
+-- reliably fail the version check in 'getLocation'. This invariant is
+-- maintained by 'insertEffect', 'deleteEffect' and 'restoreStorageData'.
 undefinedVersion :: Version
 undefinedVersion = Version 0
 
@@ -539,8 +621,3 @@ undefinedRelinker = toAnyRelinker $ Relinker $ \_ _ -> do
 -- | A strict version of 'writeSmallArray'.
 writeSmallArray' :: SmallMutableArray RealWorld a -> Int -> a -> IO ()
 writeSmallArray' arr i a = a `seq` writeSmallArray arr i a
-
-#if !MIN_VERSION_primitive(0,9,0)
-getSizeofSmallMutableArray :: SmallMutableArray RealWorld a -> IO Int
-getSizeofSmallMutableArray arr = pure $! sizeofSmallMutableArray arr
-#endif

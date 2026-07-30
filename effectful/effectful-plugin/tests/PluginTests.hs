@@ -8,7 +8,9 @@
 {-# OPTIONS_GHC -Wno-unused-foralls #-}
 module Main where
 
+import Data.Kind
 import Data.String
+import Data.Typeable
 import Unsafe.Coerce
 
 import Effectful
@@ -23,6 +25,20 @@ main = pure ()
 
 ----------------------------------------
 -- Tests
+
+data X1 = X1 { x1 :: Int }
+data X2 = X2 { x2 :: X1 }
+
+x1x2 :: (State X1 :> es, State X2 :> es) => Eff es ()
+x1x2 = do
+  _ <- gets (.x1)
+  _ <- gets (.x2.x1)
+  pure ()
+
+typeable :: (State X1 :> es, State x :> es) => Eff es ()
+typeable = do
+  _ <- gets typeOf
+  pure ()
 
 data Function i o :: Effect where
   Call :: i -> Function i o m o
@@ -150,3 +166,35 @@ type instance DispatchOf (DBAction whichDb) = Dynamic
 runDBAction :: Eff (DBAction which : es) a -> Eff es a
 runDBAction = interpret_ $ \case
   DoSelect (Select a) -> pure $ Just a
+
+-- An effect from the context competes with a concrete effect at the head of
+-- the row, so disambiguation needs to go through fit-checking instead of
+-- silently picking the head.
+uniquelyIntOrString :: State String :> es => Eff es ()
+uniquelyIntOrString = evalState (0 :: Int) $ ordPut 10 >> put ""
+
+-- An effect from the context that's identical to a concrete effect in the row
+-- is the same solution, not an ambiguity.
+sameEffectTwice :: State Int :> es => Eff es ()
+sameEffectTwice = evalState (0 :: Int) $ put 10
+
+-- Wanteds whose rows share a suffix containing the same concrete effect yield
+-- one solution, not an ambiguity.
+sharedRowSuffix :: Eff (State Int : es) ()
+sharedRowSuffix = do
+  _ <- runErrorNoCallStack @() $ put 10
+  put 20
+
+-- Disambiguation in the presence of a constraint headed by a type variable
+-- must not panic the compiler when checking whether candidates fit, since the
+-- constraint is not a type constructor application.
+needC :: forall (c :: Type -> Constraint) a es. c a => a -> Eff es ()
+needC _ = pure ()
+
+constraintPoly
+  :: forall (c :: Type -> Constraint) es
+   . (c Int, State Int :> es, State String :> es)
+  => Eff es ()
+constraintPoly = do
+  s <- get
+  needC @c s
