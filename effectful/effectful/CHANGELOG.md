@@ -1,4 +1,12 @@
-# effectful-2.7.0.0 (2026-??-??)
+# effectful-2.7.1.0 (2026-08-24)
+* Re-export `Effectful.Labeled.Provider` and `Effectful.Labeled.Provider.List`
+  from `effectful-core`.
+* Export `seqForkUnliftIO` and add `unsafeSeqForkUnliftIO` in
+  `Effectful.Dispatch.Static` for the `SeqForkUnlift` strategy.
+* Export `type (++)` from `Effectful.Dispatch.Dynamic`.
+* Remove an unnecessary `HasCallStack` constraint from `handleJust`.
+
+# effectful-2.7.0.0 (2026-08-24)
 * Add `OsPath` variants of the `FilePath` based APIs
   (`Effectful.FileSystem.OsPath` for `System.Directory.OsPath` and
   `Effectful.FileSystem.File.OsPath` for `System.File.OsPath` from the
@@ -14,6 +22,11 @@
   `Effectful.Output.Static.Local.List`, `Effectful.Output.Static.Shared.Array`,
   `Effectful.Output.Static.Shared.List` and `Effectful.Labeled.Output`) for
   accumulation of values.
+* Add the `ReturnWith` effect (`Effectful.ReturnWith.Dynamic`,
+  `Effectful.ReturnWith.Static` and `Effectful.Labeled.ReturnWith`) for early
+  return from a computation.
+* Make the `Provider` and `ProviderList` effects dynamically dispatched and
+  export their operations.
 * Re-export `Labeled(..)` from all `Effectful.Labeled.*` modules.
 * Drop support for GHC < 9.6.
 * Add definitions of `rethrowM` to `MonadThrow` and `catchNoPropagate` to
@@ -33,11 +46,11 @@
   implementation, yet deadlocks when operations of the same `State` effect are
   used within the callback, while the local variant silently discards state
   modifications made this way. If you need atomic effectful updates of shared
-  state, use an explicit `MVar'`.
+  state, use an explicit `MVar`.
 * Deprecate `runStateMVar`, `evalStateMVar` and `execStateMVar` from
   `Effectful.State.Static.Shared` so that the internal representation of the
-  shared `State` effect is not tied to an `MVar'`. If you need access to the
-  state from outside of the effect, manage an explicit `MVar'` yourself.
+  shared `State` effect is not tied to an `MVar`. If you need access to the
+  state from outside of the effect, manage an explicit `MVar` yourself.
 * Tighten pre-requisites for `unconsEnv` and `unreplaceEnv`.
 * Add `localLendBorrow` to `Effectful.Dispatch.Dynamic`.
 * Add `rethrowErrorWith`, `rethrowError` and `rethrowError_` (along with the
@@ -46,6 +59,7 @@
 * Document why the `MonadThrow`, `MonadCatch` and `MonadMask` instances for
   `Eff` are available without any effect requirements.
 * Require `primitive` >= 0.9.0.0.
+* Require `strict-mutable-base` >= 2.0.0.0.
 * Remove `SharedSuffix` constraints from functions in
   `Effectful.Dispatch.Dynamic` and deprecate the class, as runtime sanity
   checks make it unnecessary.
@@ -54,6 +68,9 @@
     to support `SharedSuffix` constraints.
   - Remove the `KnownEffects` class as it's no longer used; handlers of the
     `ProviderList` effect now require the `KnownSubset` constraint instead.
+  - Drop ticks from the API of `Effectful.Concurrent.Chan.Strict`,
+    `Effectful.Concurrent.MVar.Strict` and `Effectful.Prim.IORef.Strict` to
+    match `strict-mutable-base` 2.0.0.0.
 * **Bugfixes**:
   - `restoreStorageData` no longer shrinks the capacity of the storage, which
     could result in out of bounds reads when out of date references to the
@@ -80,7 +97,7 @@
 * Re-export `writeTMVar` from `stm-2.5.1.0` in `Effectful.Concurrent.STM`.
 * Add `cancelMany` to `Effectful.Concurrent.Async`.
 
-# effectful-core-2.6.0.0 (2025-06-13)
+# effectful-2.6.0.0 (2025-06-13)
 * Adjust `generalBracket` with `base >= 4.21` to make use of the new exception
   annotation mechanism.
 * Add `withException` to `Effectful.Exception`.

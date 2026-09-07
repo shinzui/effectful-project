@@ -1,7 +1,7 @@
 cabal-version:      3.8
 build-type:         Simple
 name:               effectful
-version:            2.7.0.0
+version:            2.7.1.0
 license:            BSD-3-Clause
 license-file:       LICENSE
 category:           Control
@@ -60,11 +60,11 @@ library
                     , async               >= 2.2.5
                     , bytestring          >= 0.10
                     , directory           >= 1.3.8
-                    , effectful-core      >= 2.7.0.0   && < 2.7.1.0
+                    , effectful-core      >= 2.7.1.0   && < 2.7.2.0
                     , file-io             >= 0.1.4
                     , filepath            >= 1.4.100
                     , process             >= 1.6.9
-                    , strict-mutable-base >= 1.1.0.0
+                    , strict-mutable-base >= 2.0.0.0   && < 3
                     , time                >= 1.9.2
                     , stm                 >= 2.5.1.0
                     , unliftio            >= 0.2.20
@@ -116,7 +116,10 @@ library
                          , Effectful.Labeled.Error
                          , Effectful.Labeled.Input
                          , Effectful.Labeled.Output
+                         , Effectful.Labeled.Provider
+                         , Effectful.Labeled.Provider.List
                          , Effectful.Labeled.Reader
+                         , Effectful.Labeled.ReturnWith
                          , Effectful.Labeled.State
                          , Effectful.Labeled.Writer
                          , Effectful.NonDet
@@ -131,6 +134,8 @@ library
                          , Effectful.Provider.List
                          , Effectful.Reader.Dynamic
                          , Effectful.Reader.Static
+                         , Effectful.ReturnWith.Dynamic
+                         , Effectful.ReturnWith.Static
                          , Effectful.State.Dynamic
                          , Effectful.State.Static.Local
                          , Effectful.State.Static.Shared
@@ -180,6 +185,7 @@ test-suite test
                     OutputTests
                     PrimTests
                     ReaderTests
+                    ReturnWithTests
                     StateTests
                     TimeoutTests
                     UnliftTests

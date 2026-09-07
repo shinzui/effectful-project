@@ -1,7 +1,7 @@
 cabal-version:      3.8
 build-type:         Simple
 name:               effectful-core
-version:            2.7.0.0
+version:            2.7.1.2
 license:            BSD-3-Clause
 license-file:       LICENSE
 category:           Control
@@ -51,6 +51,10 @@ common language
 library
     import:         language
 
+    -- -O2 enables -ffast-pap-calls, without which the handler invocation in
+    -- send and passthrough (an unknown call with 5 pointers and the State#
+    -- token that matches no precompiled RTS apply pattern) allocates an
+    -- intermediate PAP on every operation of a dynamically dispatched effect.
     ghc-options:    -O2
 
     build-depends:    base                >= 4.18      && < 5
@@ -60,7 +64,7 @@ library
                     , mtl                 >= 2.2.1
                     , monad-control       >= 1.0.3
                     , primitive           >= 0.9.0.0
-                    , strict-mutable-base >= 1.1.0.0
+                    , strict-mutable-base >= 2.0.0.0  && < 3
                     , transformers-base   >= 0.4.6
                     , unliftio-core       >= 0.2.0.1
 
@@ -92,6 +96,7 @@ library
                      Effectful.Labeled.Provider
                      Effectful.Labeled.Provider.List
                      Effectful.Labeled.Reader
+                     Effectful.Labeled.ReturnWith
                      Effectful.Labeled.State
                      Effectful.Labeled.Writer
                      Effectful.NonDet
@@ -106,6 +111,8 @@ library
                      Effectful.Provider.List
                      Effectful.Reader.Dynamic
                      Effectful.Reader.Static
+                     Effectful.ReturnWith.Dynamic
+                     Effectful.ReturnWith.Static
                      Effectful.State.Dynamic
                      Effectful.State.Static.Local
                      Effectful.State.Static.Shared

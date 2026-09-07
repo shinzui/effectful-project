@@ -1,4 +1,17 @@
-# effectful-core-2.7.0.0 (2026-??-??)
+# effectful-core-2.7.1.2 (2026-??-??)
+* Make the library work with the JavaScript backend.
+
+# effectful-core-2.7.1.1 (2026-08-24)
+* Fix a performance regression introduced in 2.7.0.0 that increased the
+  per-operation overhead of dynamically dispatched effects.
+
+# effectful-core-2.7.1.0 (2026-08-24)
+* Export `seqForkUnliftIO` and add `unsafeSeqForkUnliftIO` in
+  `Effectful.Dispatch.Static` for the `SeqForkUnlift` strategy.
+* Export `type (++)` from `Effectful.Dispatch.Dynamic`.
+* Remove an unnecessary `HasCallStack` constraint from `handleJust`.
+
+# effectful-core-2.7.0.0 (2026-08-24)
 * Add the `Input` effect (`Effectful.Input.Dynamic`, `Effectful.Input.Static`,
   `Effectful.Input.Static.Action` and `Effectful.Labeled.Input`) for access to
   values.
@@ -7,6 +20,9 @@
   `Effectful.Output.Static.Local.List`, `Effectful.Output.Static.Shared.Array`,
   `Effectful.Output.Static.Shared.List` and `Effectful.Labeled.Output`) for
   accumulation of values.
+* Add the `ReturnWith` effect (`Effectful.ReturnWith.Dynamic`,
+  `Effectful.ReturnWith.Static` and `Effectful.Labeled.ReturnWith`) for early
+  return from a computation.
 * Make the `Provider` and `ProviderList` effects dynamically dispatched and
   export their operations.
 * Add `Effectful.Labeled.Provider` and `Effectful.Labeled.Provider.List` with
@@ -30,11 +46,11 @@
   implementation, yet deadlocks when operations of the same `State` effect are
   used within the callback, while the local variant silently discards state
   modifications made this way. If you need atomic effectful updates of shared
-  state, use an explicit `MVar'`.
+  state, use an explicit `MVar`.
 * Deprecate `runStateMVar`, `evalStateMVar` and `execStateMVar` from
   `Effectful.State.Static.Shared` so that the internal representation of the
-  shared `State` effect is not tied to an `MVar'`. If you need access to the
-  state from outside of the effect, manage an explicit `MVar'` yourself.
+  shared `State` effect is not tied to an `MVar`. If you need access to the
+  state from outside of the effect, manage an explicit `MVar` yourself.
 * Tighten pre-requisites for `unconsEnv` and `unreplaceEnv`.
 * Add `localLendBorrow` to `Effectful.Dispatch.Dynamic`.
 * Add `rethrowErrorWith`, `rethrowError` and `rethrowError_` (along with the
@@ -43,6 +59,7 @@
 * Document why the `MonadThrow`, `MonadCatch` and `MonadMask` instances for
   `Eff` are available without any effect requirements.
 * Require `primitive` >= 0.9.0.0.
+* Require `strict-mutable-base` >= 2.0.0.0.
 * Remove `SharedSuffix` constraints from functions in
   `Effectful.Dispatch.Dynamic` and deprecate the class, as runtime sanity
   checks make it unnecessary.
