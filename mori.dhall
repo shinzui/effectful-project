@@ -105,5 +105,13 @@ in  Schema.Project::{ project =
         , location =
             Schema.DocLocation.LocalFile "docs/effectful-lift-unlift.md"
         }
+      , Schema.DocRef::{ key = "upgrade-2.6-to-2.7"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Changes between effectful 2.6 and 2.7 and how to migrate: breaking changes, deprecations, new effects, behavior changes"
+        , location =
+            Schema.DocLocation.LocalFile "docs/effectful-2.6-to-2.7-upgrade.md"
+        }
       ]
     }
